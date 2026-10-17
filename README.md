@@ -2,7 +2,7 @@
 
 Built by Dan Howard, Dicrotic.
 
-An animated teaching model of the circulation in shock. Pick one of nine phenotypes, apply interventions, and watch mean systemic filling pressure, venous return, cardiac output, oxygen delivery and extraction change, along with a simulated Swan–Ganz panel. Values outside normal ranges are flagged. "Zoom into this capillary bed" opens a second page showing delivery, shunting and extraction at the level of the capillaries and cells.
+An animated teaching model of the circulation in shock. Start from a healthy adult or one of 17 chronic conditions (heart failure, valve disease, pulmonary hypertension, cirrhosis and more), add one of 10 acute insults, then apply interventions. Watch mean systemic filling pressure, venous return, cardiac output, oxygen delivery and extraction change, along with a simulated Swan–Ganz panel. Values outside normal ranges are flagged. If an intervention stops the circulation, a timed ACLS code starts: a rhythm strip, CPR, drugs, the H's and T's, an ECPR option, post-ROSC care and a debrief. Three guided code cases walk through arrests step by step. "Zoom into this capillary bed" opens a second page showing delivery, shunting and extraction at the level of the capillaries and cells.
 
 Try it: https://shock-circulation.web.app
 
