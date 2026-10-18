@@ -998,21 +998,26 @@ function line(c,points,color='#91a8b7',width=14){c.strokeStyle=color;c.lineWidth
 function ellipse(c,x,y,rx,ry,fill,stroke='#38556a'){c.beginPath();c.ellipse(x,y,Math.max(1,rx),Math.max(1,ry),0,0,Math.PI*2);c.fillStyle=fill;c.fill();c.strokeStyle=stroke;c.lineWidth=2;c.stroke()}
 function color(sat){let f=clamp((sat-.3)/.7,0,1);return `rgb(${Math.round(80+145*f)},${Math.round(66-20*f)},${Math.round(170-100*f)})`}
 function circuit(s,d){const [c,w,h]=setup('circuit');const scale=Math.min(w/900,h/490);c.save();c.translate((w-900*scale)/2,(h-490*scale)/2);c.scale(scale,scale);
-// RV → pulmonary artery → lung bed → pulmonary vein → LA → mitral valve → LV.
-const path=[[170,225],[290,225],[335,225],[390,225],[435,120],[505,120],[540,155],[540,225],[625,225],[690,225],[760,225],[820,225],[820,410],[130,410],[130,290],[170,225]];
-line(c,path,'#d4dfe7',22);line(c,[[505,120],[540,155],[540,225],[625,225],[820,225],[820,410]],'#efb6bc',15);line(c,[[820,410],[130,410],[130,290]],'#c9c0e1',15);
 // Width encodes venous capacitance; blood area stays proportional to volume.
 // Equal volumes occupy equal areas even as tone changes the vessel width.
 const reservoirWidth=clamp(150*(s.u/base.u)*Math.sqrt(s.comp/base.comp),105,190);
 const reservoirLeft=120-reservoirWidth/2,reservoirRight=120+reservoirWidth/2;
 const floor=315,volumeScale=5100/reservoirWidth;
 const top=floor-s.vol*volumeScale,divide=floor-Math.min(s.u,s.vol)*volumeScale;
-const vesselTop=Math.min(90,top-15);
+const vesselTop=Math.min(90,top-15),inY=vesselTop-16;
+// Bathtub: venous blood pours onto the surface and leaves through a drain at the stressed/unstressed
+// line. Only the volume above the drain can flow out; the unstressed volume below it never moves.
+// Drain → RA → RV → pulmonary artery → lung bed → pulmonary vein → LA → mitral valve → LV → aorta → tissues → back over the rim.
+const path=[[120,top],[reservoirRight,divide],[255,divide],[290,225],[335,225],[390,225],[435,120],[505,120],[540,155],[540,225],[625,225],[690,225],[760,225],[820,225],[820,410],[8,410],[8,inY],[120,inY],[120,top]];
+const lungIdx=6,tissueIdx=14;
+line(c,path.slice(1),'#d4dfe7',22);line(c,[[505,120],[540,155],[540,225],[625,225],[820,225],[820,410]],'#efb6bc',15);line(c,[[820,410],[8,410],[8,inY],[120,inY],[120,top]],'#c9c0e1',15);
 c.fillStyle='#e2dcf0';c.fillRect(reservoirLeft,top,reservoirWidth,floor-top);
 c.fillStyle='#7654ae';c.fillRect(reservoirLeft,top,reservoirWidth,Math.max(0,divide-top));
-c.strokeStyle='#475e73';c.lineWidth=3;c.strokeRect(reservoirLeft,vesselTop,reservoirWidth,floor-vesselTop);
+// Open-top tank, with the drain marked on the right wall.
+line(c,[[reservoirLeft,vesselTop],[reservoirLeft,floor],[reservoirRight,floor],[reservoirRight,vesselTop]],'#475e73',3);
+line(c,[[reservoirRight-4,divide-9],[reservoirRight+4,divide-9]],'#273d53',3);line(c,[[reservoirRight-4,divide+9],[reservoirRight+4,divide+9]],'#273d53',3);
 c.setLineDash([7,5]);line(c,[[reservoirLeft,divide],[reservoirRight,divide]],'#273d53',2);c.setLineDash([]);
-text(c,'Venous reservoir',120,Math.min(70,vesselTop-8),19,'#233e52','center');
+text(c,'Venous reservoir',120,Math.max(20,vesselTop-34),19,'#233e52','center');
 text(c,`${s.vol.toFixed(1)} L total`,120,340,16,'#233e52','center');
 text(c,reservoirWidth>157?'Dilated · wider':reservoirWidth<143?'Constricted · narrower':'Baseline venous tone',120,360,14,'#496070','center');
 if(kind==='hemorrhage'){line(c,[[70,365],[70,380]],'#b63648',3);text(c,'↓ blood loss',70,400,15,'#b63648')}
@@ -1020,7 +1025,7 @@ const stressedHeight=divide-top;
 if(stressedHeight>=23)text(c,'Stressed',120,top+stressedHeight/2+5,14,'white','center');
 else{text(c,'Stressed',reservoirRight+7,top+5,13,'#7654ae');}
 text(c,'Unstressed',120,divide+(floor-divide)/2+5,15,'#233e52','center');
-text(c,`Pmsf ${d.pms.toFixed(1)}`,220,175);text(c,`→ RAP ${d.rap.toFixed(1)}`,220,197);text(c,`VR ${d.co.toFixed(1)} L/min`,220,265,15);
+const ly=Math.max(divide,225)+30;text(c,`Pmsf ${d.pms.toFixed(1)}`,210,ly);text(c,`→ RAP ${d.rap.toFixed(1)}`,210,ly+22);text(c,`VR ${d.co.toFixed(1)} L/min`,210,ly+46,15);
 
 // Chamber sizes follow the model's end-diastolic volumes; squeeze follows ejection fraction.
 let beat=(Math.sin(time*s.hr/60*Math.PI*2)+1)/2,lvSize=clamp(36*Math.sqrt(d.lvedv/125),22,58),squeeze=clamp(d.lvef/100*.5,.04,.32);
@@ -1070,8 +1075,8 @@ text(c,'Aorta',655,184,17);let opening=clamp(2300/s.svr*7,6,30);line(c,[[728,190
 c.fillStyle='#fff0cf';c.fillRect(430,365,260,85);text(c,'Tissues · oxygen draw',452,390,19);text(c,`Demand ${s.demand.toFixed(0)} · consumed ${d.vo.toFixed(0)}`,445,435,15);for(let i=0;i<5;i++){let x=465+i*42;line(c,[[x,405],[x,405-18*s.demand/250]],'#c88522',2);text(c,'↓',x,405,19,'#a56916')}
 if(s.shunt>.2){line(c,[[700,410],[700,345],[415,345],[415,410]],'#e58a95',5);text(c,'Shunt: oxygen bypasses tissue',440,328,15,'#963f53')}
 let segments=[],total=0;for(let i=1;i<path.length;i++){const a=path[i-1],b=path[i],l=Math.hypot(b[0]-a[0],b[1]-a[1]);segments.push({a,b,l,start:total,index:i-1});total+=l}
-const lungStart=segments[4].start,lungEnd=segments[5].start+segments[5].l;
-const tissueSegment=segments[12],unloadStart=tissueSegment.start+130,unloadEnd=tissueSegment.start+390;
+const lungStart=segments[lungIdx].start,lungEnd=segments[lungIdx+1].start+segments[lungIdx+1].l;
+const tissueSegment=segments[tissueIdx],unloadStart=tissueSegment.start+130,unloadEnd=tissueSegment.start+390;
 const count=Math.round(clamp(d.co*9,12,100));
 for(let i=0;i<count;i++){
  const pos=(i/count*total+time*d.co*25)%total,seg=segments.find(g=>pos<=g.start+g.l)||segments.at(-1),f=(pos-seg.start)/seg.l;
@@ -1079,7 +1084,7 @@ for(let i=0;i<count;i++){
  if(pos>=lungStart&&pos<lungEnd)sat+= (s.sao-sat)*(pos-lungStart)/(lungEnd-lungStart);
  else if(pos>=lungEnd&&pos<unloadStart)sat=s.sao;
  else if(pos>=unloadStart&&pos<unloadEnd)sat=s.sao-(s.sao-d.svo/100)*(pos-unloadStart)/(unloadEnd-unloadStart);
- if(s.shunt>.2&&i%4===0&&seg.index===12&&x<700&&x>415){y=345;sat=s.sao}
+ if(s.shunt>.2&&i%4===0&&seg.index===tissueIdx&&x<700&&x>415){y=345;sat=s.sao}
  ellipse(c,x,y,5,5,color(sat),color(sat));
 }
 // Keep chamber labels legible over moving blood cells.
