@@ -11,7 +11,7 @@
 .codecase b{display:block}.ccmarks{list-style:none;padding:0;margin:8px 0;columns:2 230px;column-gap:18px}.ccmarks li{padding:2px 0;color:#6a5a33;break-inside:avoid}.ccmarks li.ok{color:#2e7a4f}.ccmarks li.now{color:#172e42;font-weight:bold}.ccpick{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;margin:8px 0}.ccpick .note{flex:1 1 220px}#printDebrief{display:none}
 @media print{html.pd,html.pd body{background:#fff!important;color:#000}html.pd body>*{display:none!important}html.pd body>#printDebrief{display:block!important;font-size:11pt;line-height:1.4}#printDebrief h1{font-size:18pt;margin:0 0 4px}#printDebrief h3{font-size:14pt;margin:14px 0 4px;color:#000}#printDebrief p,#printDebrief .note{color:#222}#printDebrief .debrief{width:100%;border-collapse:collapse;font-size:10.5pt;table-layout:fixed}#printDebrief .debrief th,#printDebrief .debrief td{text-align:left;vertical-align:top;padding:4px 6px;border-top:1px solid #999;color:#000}#printDebrief .debrief th{width:30%}#printDebrief .codelog ol{list-style:none;padding:0;max-height:none;overflow:visible}#printDebrief .codelog li{border-top:1px solid #ccc;padding:2px 0;color:#000}#printDebrief .codelog li b{display:inline-block;min-width:44px;color:#000}#printDebrief .codelog li.hidden{color:#444}#printDebrief summary{list-style:none;font-weight:bold;font-size:13pt;margin-top:12px}#printDebrief tr,#printDebrief li{break-inside:avoid}@page{margin:15mm}}
 .sims{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px;font-size:15px}.sims span{color:#9fbdd0;margin-right:2px}.sims a,.sims b{padding:6px 12px;border-radius:999px;border:1px solid #4d6f86;color:#e6f1f7;text-decoration:none}.sims a:hover{background:#1d4560}.sims b{background:#e6f1f7;color:#112e43;border-color:#e6f1f7}.sims a:focus-visible{outline:3px solid #e39825;outline-offset:2px}
-</style></head><body><header><h1>Shock · Follow the oxygen</h1><p>A teaching model of the circulation: oxygen delivery, oxygen demand, and the venous return between them</p></header><main>
+</style></head><body><header><h1>Shock · Follow the oxygen</h1><p>A teaching model of the circulation: oxygen delivery, oxygen demand, and the venous return between them</p><nav class="sims" aria-label="Simulators"><span>Simulators</span><b aria-current="page">Shock</b><a href="https://impella-sim.web.app/">Impella</a><a href="https://code-sim.web.app/">Code</a><a href="https://mechanical-ventilation.web.app/">Mechanical ventilation</a><a href="https://acid-base-sim.web.app/">Acid–base</a><a href="https://sodium-water.web.app/">Sodium and water</a><a href="https://acute-kidney-injury.web.app/">Acute kidney injury</a><a href="https://diagnostic-reasoning.web.app/">Diagnostic reasoning</a></nav></header><main>
 <div class="bar"><button id="pause">Pause</button><label>Speed <input id="speed" type="range" min="0.25" max="2" step="0.25" value="1"> <span id="speedLabel">1×</span></label><button id="reset">Reset to normal</button><button id="playCase" class="primary">Play the case</button><button id="codeCases" aria-controls="codeCase">Code cases</button></div>
 <details class="panel" id="basePanel"><summary class="sectionlabel basesum">Chronic baseline <span id="baseSummary">None · healthy adult</span><span class="basehint">Choose a condition or load a Bedside SWAN patient</span></summary><p class="note" style="margin-top:0">Choose any that apply.</p><div id="baselines" class="buttons"></div><p class="note">The chronic disease is the patient you start with. Pick an acute insult below to layer on top. Combinations work: PAH with severe TR, AS with HFrEF, and so on. Group 2 PH needs a left-heart lesion (LV disease or a mitral lesion), so it brings HFpEF if you haven't picked one. Blunted compensation and permanent AF are modifiers: add them to any patient.</p><div class="buttons" style="margin-top:10px"><button id="swanLoad">Load a patient from Bedside SWAN</button><input type="file" id="swanFile" accept=".json,application/json" hidden><span class="note">Uses the file from Export for shock sim in Bedside SWAN Max. The file is read on this device and never uploaded.</span></div><div id="swanReview" class="casebox" hidden></div><div id="swanBanner" class="swanbanner" role="status" hidden></div></details>
 <section class="panel"><p class="sectionlabel">Acute insult</p><div id="states" class="buttons"></div><div class="buttons" style="margin-top:10px"><span class="note" style="margin-right:4px">Severity</span><span id="severity" class="buttons"></span></div></section>
@@ -26,7 +26,7 @@ const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.max(a,Math.min(b,x)
 // (slope Ees, intercept V0) and an exponential end-diastolic curve (stiffness beta).
 const base={vol:5,u:3.5,comp:.2,rvr:.503,ext:0,hr:70,svr:1200,hb:15,sao:.98,pao:95,demand:250,extract:.72,shunt:0,lung:0,lact:1,gap:4,bsa:1.8,temp:37,pvr:1.5,paCompliance:5,
  lvEes:2.3,lvBeta:.027,lvV0:15,rvEes:.45,rvBeta:.018,rvV0:40,ava:3.5,trSev:0,arSev:0,hpv:.3,pvrResp:.15,edemaAt:18,ppv:0,rvIsch:1,lvIsch:1,periV0:300,
- sam:0,mva:1000,mrSev:0,reflexGain:1,lvRelax:1,rvRelax:1,periK:.03,periFixed:0,atrialKick:1,rateLock:0,iatroTamp:0,iatroPtx:0,iatroPtxExt:0,iatroPtxPvr:0};
+ sam:0,mva:1000,mrSev:0,cong:0,reflexGain:1,lvRelax:1,rvRelax:1,periK:.03,periFixed:0,atrialKick:1,rateLock:0,iatroTamp:0,iatroPtx:0,iatroPtxExt:0,iatroPtxPvr:0};
 // sam: how readily the mitral leaflet is pulled into the LV outflow tract (0 = never).
 // mva: mitral valve area in cm². The healthy valve is set wide open so it adds no gradient.
 // mrSev: regurgitant fraction of an MR lesion at normal load. arSev: the same for acute AR. reflexGain: share of the
@@ -37,6 +37,9 @@ const base={vol:5,u:3.5,comp:.2,rvr:.503,ext:0,hr:70,svr:1200,hb:15,sao:.98,pao:
 // periFixed: a scarred pericardium that can't stretch to fit the heart over time.
 // iatroTamp: pericardial pressure (mmHg) from blood a needle put there. iatroPtx: a pneumothorax a
 // needle made (1 simple, 2 tension), with the intrathoracic pressure and PVR it added.
+// cong: venous congestion of the organs (0 to 1). It builds over minutes while RAP sits above
+// about 12 mmHg and clears slowly once RAP falls. Congested, edematous tissue extracts oxygen
+// poorly, so delivery can look adequate while an oxygen debt grows.
 // atrialKick: how much of the normal atrial contraction is left (1 = sinus, 0 = AF).
 // rateLock: the ventricular rate is set by the rhythm (AF through the AV node, or an
 // escape rhythm below a heart block), so the baroreflex can't speed it up or slow it down.
@@ -54,7 +57,9 @@ const LVOT_V=55,LVOT_N=6;
 const kickShare=(beta,b0,relax,hr)=>.12*clamp((beta/b0)**4*Math.sqrt(Math.max(1,relax)),.5,4)*(Math.max(hr,70)/70)**2;
 function edp(v,v0,beta,a){return a*(Math.exp(Math.min(30,beta*Math.max(0,v-v0)))-1)}
 // Effective SaO2 falls with lung water. Alveolar hypoxia constricts pulmonary arterioles.
-function lungs(s){const sao=clamp(s.sao-.08*s.lung,.6,1);return{sao,pvr:s.pvr*(1+s.hpv*Math.max(0,.95-sao)*10)}}
+// Once the alveoli flood the loss is steep (shunt). Positive pressure recruits flooded units
+// and a high FiO2 rescues some of the rest.
+function lungs(s){const sao=clamp(s.sao-.08*s.lung-.3*Math.pow(s.lung,2.5)*(s.ppv?.5:1)*(s.pao>200?.45:1),.4,1);return{sao,pvr:s.pvr*(1+s.hpv*Math.max(0,.95-sao)*10)}}
 // For a given forward flow, what filling pressure does each ventricle need?
 // LV: ESV = V0 + Pes/Ees, EDV = ESV + SV, LVEDP from the diastolic curve.
 // A faster rate leaves less time to fill, so the same EDV needs a higher EDP; near
@@ -117,7 +122,11 @@ function solve(s){
 function pumpAt(s,rap){let lo=0,hi=20;for(let i=0;i<36;i++){const co=(lo+hi)/2;if(heart(s,co,rap).rapNeed<rap)lo=co;else hi=co}return(lo+hi)/2}
 function calc(s){
  const {pms,co,rap,h}=solve(s),sv=h.sv,sao=h.sao,map=h.map;
- const cao=1.34*s.hb*sao+.003*s.pao,delivery=co*cao*10,vo=Math.min(s.demand,delivery*s.extract),oer=delivery?vo/delivery:0;
+ // Venous congestion: high RAP backs up into the organs. The target builds from RAP 12 to
+ // RAP 24; the slow state (s.cong) follows it. Edematous tissue extracts oxygen poorly
+ // (a wider diffusion distance) and congested, inflamed organs need more of it.
+ const congT=clamp((rap-12)/12,0,1),extract=s.extract*(1-.65*s.cong),demand=s.demand*(1+.2*s.cong);
+ const cao=1.34*s.hb*sao+.003*s.pao,delivery=co*cao*10,vo=Math.min(demand,delivery*extract),oer=delivery?vo/delivery:0;
  const scv=clamp(sao-vo/Math.max(.001,1.34*s.hb*co*10),0,1);
  const pcwp=h.lap,latm=h.lap-s.ext,mpap=h.mpap,pp=h.pp,pad=mpap-pp/3,pas=mpap+2*pp/3;
  const ci=co/s.bsa,svi=sv/s.bsa,tpg=mpap-pcwp,dpg=pad-pcwp;
@@ -134,11 +143,14 @@ function calc(s){
  // estimated pulse pressure, wider when AR runs back out of the aorta) minus LVEDP, less what a high systolic load and a fast rate cost.
  // Below that the LV weakens gradually, so one bad move costs output and it takes a sustained
  // or repeated insult to tip it into the ischemic spiral.
- const dbp=map-(sv+h.arV)/4.5,lvSupply=dbp-latm-.1*Math.max(0,lvsp-120)-.25*Math.max(0,s.hr-85);
- const rvIschT=clamp(.3+.7*rvSupply/30,.3,1),lvIschT=clamp(1-.7*(25-lvSupply)/60,.3,1);
+ // A high LVEDP squeezes the subendocardium harder than the simple difference suggests, and a
+ // weak or thick LV needs more perfusion pressure than a normal one before it starts to starve.
+ const dbp=map-(sv+h.arV)/4.5,lvSupply=dbp-latm-.4*Math.max(0,latm-18)-.1*Math.max(0,lvsp-120)-.25*Math.max(0,s.hr-85);
+ const lvNeed=25+8*Math.max(0,1-s.lvEes/base.lvEes)+8*Math.max(0,s.lvEes/base.lvEes-1.3);
+ const rvIschT=clamp(.3+.7*rvSupply/30,.3,1),lvIschT=clamp(1-.7*(lvNeed-lvSupply)/60,.3,1);
  const lvef=h.svL/h.edvL,rvef=h.svTot/h.edvR;
- return {hr:s.hr,sv,co,map,svr:s.svr,rap,pms,hb:s.hb,sao:sao*100,cao,delivery,vo,oer:oer*100,scv:scv*100,lact:s.lact,gap:s.gap,vti:sv/3.14,debt:Math.max(0,s.demand-vo),pcwp,latm,mpap,pas,pad,rvs:pas,rvedp:h.rvedp+h.ppc+s.ext,ci,svi,svo,cvo,temp:s.temp,bsa:s.bsa,pvr:h.pvr,pvrd:h.pvr*80,svri:s.svr*s.bsa,pvri:h.pvr*80*s.bsa,tpg,dpg,papi:pp/Math.max(.01,rap),cpo:map*co/451,cpi:map*ci/451,lvswi:.0136*(map-pcwp)*svi,rvswi:.0136*(mpap-rap)*svi,doi:delivery/s.bsa,voi:vo/s.bsa,laScale,congestion,
-  lvedv:h.edvL,lvesv:h.esvL,rvedv:h.edvR,rvesv:h.esvR,lvef:lvef*100,rvef:rvef*100,lvedp:h.lvedp+h.ppc+s.ext,ppc:h.ppc,lvsp,dpAS:h.dpAS,dpLVOT:h.dpLVOT,dpMV:h.dpMV,mrf:h.mrf*100,arf:h.arf*100,arV:h.arV,rf:h.rf*100,septal:h.septal,rvPerf,rvSupply,lvSupply,rvIschT,lvIschT,rvIsch:s.rvIsch*100,lvIsch:s.lvIsch*100,vwave:h.vwave,kick:s.atrialKick}
+ return {hr:s.hr,sv,co,map,svr:s.svr,rap,pms,hb:s.hb,sao:sao*100,cao,delivery,vo,oer:oer*100,scv:scv*100,lact:s.lact,gap:s.gap,vti:sv/3.14,debt:Math.max(0,demand-vo),pcwp,latm,mpap,pas,pad,rvs:pas,rvedp:h.rvedp+h.ppc+s.ext,ci,svi,svo,cvo,temp:s.temp,bsa:s.bsa,pvr:h.pvr,pvrd:h.pvr*80,svri:s.svr*s.bsa,pvri:h.pvr*80*s.bsa,tpg,dpg,papi:pp/Math.max(.01,rap),cpo:map*co/451,cpi:map*ci/451,lvswi:.0136*(map-pcwp)*svi,rvswi:.0136*(mpap-rap)*svi,doi:delivery/s.bsa,voi:vo/s.bsa,laScale,congestion,
+  lvedv:h.edvL,lvesv:h.esvL,rvedv:h.edvR,rvesv:h.esvR,lvef:lvef*100,rvef:rvef*100,lvedp:h.lvedp+h.ppc+s.ext,ppc:h.ppc,lvsp,dpAS:h.dpAS,dpLVOT:h.dpLVOT,dpMV:h.dpMV,mrf:h.mrf*100,arf:h.arf*100,arV:h.arV,rf:h.rf*100,septal:h.septal,rvPerf,rvSupply,lvSupply,rvIschT,lvIschT,rvIsch:s.rvIsch*100,lvIsch:s.lvIsch*100,vwave:h.vwave,kick:s.atrialKick,cong:s.cong,congT}
 }
 // Run the slow processes (coronary ischemia, lung water) forward until they settle.
 // Used to predict where an intervention will land before the animation gets there.
@@ -147,6 +159,10 @@ function settle(s,steps=400,dt=.1){
 function slow(s,d,dt){
  for(const[k,t]of[['rvIsch',d.rvIschT],['lvIsch',d.lvIschT]])s[k]+=(t-s[k])*(1-Math.exp(-dt*(t<s[k]?.35:.2)));
  s.lung+=(d.congestion-s.lung)*(1-Math.exp(-dt*(d.congestion>s.lung?.5:.05)));
+ s.cong+=(d.congT-s.cong)*(1-Math.exp(-dt*(d.congT>s.cong?.3:.03)));
+ // Capillary leak: once venous or left-sided pressures are high, fluid leaves the circulation
+ // for the tissues. The venous system can't hold a RAP in the 30s for long.
+ s.vol=Math.max(s.u,s.vol-dt*(.0015*Math.max(0,d.rap-18)+.001*Math.max(0,d.latm-25)));
 }
 
 // Chronic baselines. Each one changes the healthy heart and lungs the way years of the
@@ -216,7 +232,8 @@ function compose(keys,kind,severity=1){const c=chronicOf(keys),full=presets[kind
 // model. c is the chronic patient (no acute insult), used to undo an obstruction.
 const tone=s=>clamp((3000-s.svr)/1800,0,1);
 const actions={
- fluid:{name:'Crystalloid bolus',group:'Volume',terms:['Volume','Pmsf','VR','SV','CO','DO₂','O₂ER'],why:'Volume raises stressed volume and Pmsf.',fx:s=>{s.vol+=.35}},
+ // A 500 mL bolus. About a third of a crystalloid bolus is still in the vessels an hour later.
+ fluid:{name:'Crystalloid bolus (500 mL)',group:'Volume',terms:['Volume','Pmsf','VR','SV','CO','DO₂','O₂ER'],why:'Volume raises stressed volume and Pmsf.',fx:s=>{s.vol+=.175}},
  blood:{name:'Blood',group:'Volume',terms:['Volume','Pmsf','VR','CO','Hb','CaO₂','DO₂','O₂ER'],why:'Blood adds volume and oxygen-carrying capacity.',fx:s=>{s.vol+=.35;s.hb=Math.max(s.hb,Math.min(15,s.hb+1))}},
  diurese:{name:'Diuresis',group:'Volume',terms:['Volume','RAP','PCWP','Lung water','SV','CO'],why:'Diuresis removes volume, so Pmsf and filling pressures fall.',fx:s=>{s.vol=Math.max(2.5,s.vol-.35)}},
  norepi:{name:'Norepinephrine',group:'Vasoactive drugs',terms:['Venous tone','Pmsf','VR','CO','SVR → MAP','RV perfusion'],why:'Norepinephrine constricts arterioles and veins. Venoconstriction recruits stressed volume without adding blood.',fx:s=>{s.u=Math.max(1.5,s.u-.25);s.svr*=1+.18*tone(s);s.lvEes*=1.06;s.rvEes*=1.06;s.hr+=3}},
@@ -286,6 +303,8 @@ function explain(a,b,d,s){
  else if(d.lvIsch>b.lvIsch+6)out.push('LV coronary perfusion recovered, and the LV contracts better.');
  if(d.septal>b.septal+6)out.push('The RV dilated and its diastolic pressure now exceeds the LV\'s. The septum bows into the LV, so the LV fills less.');
  if(d.rf>b.rf+5)out.push(`TR got worse as the RV stretched (regurgitant fraction ${f(b.rf)}% → ${f(d.rf)}%). More of each beat goes backward into the RA.`);
+ if(d.cong>b.cong+.15)out.push(`RAP is ${f(d.rap)} mmHg. Venous pressure that high backs up into the organs, and congested tissue extracts less oxygen (consumption ${f(b.vo)} → ${f(d.vo)} mL/min).`);
+ else if(b.cong>.3&&d.cong<b.cong-.15)out.push(`RAP came down to ${f(d.rap)} mmHg and the organs decongest, so the tissues extract oxygen again (consumption ${f(b.vo)} → ${f(d.vo)} mL/min).`);
  if(d.latm>s.edemaAt&&d.latm>b.latm+2)out.push(`Left-sided filling pressure is now ${f(d.latm)} mmHg, past the point where fluid leaks into the lungs.`);
  if(d.dpAS>b.dpAS+8)out.push(`The mean gradient across the aortic valve rose to ${f(d.dpAS)} mmHg.`);
  if(d.dpLVOT>b.dpLVOT+8)out.push(`The outflow tract gradient rose from ${f(b.dpLVOT)} to ${f(d.dpLVOT)} mmHg. A smaller, faster or harder-squeezing LV pulls the mitral leaflet into its own outflow.`);
@@ -306,6 +325,18 @@ function explain(a,b,d,s){
  const dir=(x,y,t)=>Math.abs(y/x-1)<.03?`${t} about the same`:`${t} ${f(x,t==='CO'?1:0)} → ${f(y,t==='CO'?1:0)}`;
  out.push(`Where it settles: ${dir(b.co,d.co,'CO')} L/min, ${dir(b.map,d.map,'MAP')} mmHg, RAP ${f(b.rap)} → ${f(d.rap)}.`);
  return out.join(' ')}
+// When a circulation can no longer keep the heart and tissues alive. Returns the reason, or null.
+// Pressure for the coronaries (MAP, MAP − RAP), flow (cardiac index), oxygen in the blood (SaO2)
+// and oxygen reaching the tissues (uptake against demand).
+function unsurvivable(d){const f=x=>x.toFixed(0);
+ if(d.map<40)return`MAP fell to ${f(d.map)} mmHg`;
+ if(d.map-d.rap<25)return`MAP − RAP narrowed to ${f(d.map-d.rap)} mmHg`;
+ if(d.ci<.8)return`cardiac index fell to ${d.ci.toFixed(2)}`;
+ if(d.sao<65)return`SaO₂ fell to ${f(d.sao)}% with the lungs full`;
+ // An oxygen debt kills when the tissues are already extracting all they can, or when congested
+ // organs can't take up what is delivered. The shunted debt of sepsis is a slower death and is left alone.
+ const need=d.vo+d.debt;if(need>0&&d.vo<.7*need&&(d.oer>=50||d.cong>.5))return`the tissues got ${f(d.vo)} of the ${f(need)} mL/min of oxygen they needed`;
+ return null}
 // A patient loaded from Bedside SWAN stands in for the healthy adult as the chronic patient.
 let imported=null;
 // Bedside SWAN import. Turn an exported profile into a patient the model can run:
@@ -433,7 +464,7 @@ document.querySelectorAll('#interventions button[data-act]').forEach(b=>b.onclic
 // Cardiac arrest. Once an intervention leaves the circulation without a perfusing
 // pressure for a couple of simulated seconds, the heart stops. Criteria: MAP < 40,
 // a systemic perfusion gradient (MAP - RAP) < 25, or CI < 0.8.
-function noPerfusion(d){return d.map<40||d.map-d.rap<25||d.ci<.8}
+function noPerfusion(d){return !!unsurvivable(d)}
 const arrestFix={normal:'volume and vasopressors',hemorrhage:'blood and hemorrhage control',sepsis:'volume and vasopressors',preload:'volume and vasopressors',cardiogenic:'defibrillation if the rhythm is VF, then inotropes or mechanical support',tamponade:'pericardiocentesis',pe:'thrombolysis or embolectomy',tension:'needle decompression',anaphylaxis:'epinephrine and volume',af:'synchronized cardioversion',brady:'pacing',ar:'emergency valve surgery; until then, afterload reduction, dobutamine and a faster rate'};
 function arrestWhy(a){
  if(state.iatroTamp>0&&(a==='drain'||target.iatroTamp>0))return'The needle punctured the heart. Blood filled the pericardium, and the heart couldn\'t fill.';
@@ -550,7 +581,7 @@ function arrest(d){
  plr=null;target={...state};
  const actName=lastAct?actions[lastAct].past||actions[lastAct].name.toLowerCase():null,ph=baseKeys.some(k=>baselines[k].group==='ph');
  const fix=state.iatroTamp>0?'pericardiocentesis to drain the blood the needle let in':state.iatroPtx===2?'needle decompression, then a chest tube':lastAct==='clot'?'blood, reversal of the lytic, and stopping the bleeding':alternative?'inotropes, not more fluid':ph&&['normal','sepsis','preload','anaphylaxis','hemorrhage'].includes(kind)?'norepinephrine or vasopressin to restore RV perfusion pressure, inhaled NO, and an early call for ECMO':arrestFix[kind]||arrestFix.normal;
- const start=rearrest?`${rearrest} That was too little to keep the coronaries perfused, and the heart stopped again.`:`${actName?`After ${actName}`:'Without treatment'}, ${[d.map<40?`MAP fell to ${d.map.toFixed(0)} mmHg`:'',d.map-d.rap<25?`MAP − RAP narrowed to ${(d.map-d.rap).toFixed(0)} mmHg`:'',d.ci<.8?`cardiac index fell to ${d.ci.toFixed(2)}`:''].filter(Boolean).join(' and ')}. That's too little to perfuse the coronaries, and the heart stopped.`;
+ const start=rearrest?`${rearrest} That was too little to keep the coronaries perfused, and the heart stopped again.`:`${actName?`After ${actName}`:'Without treatment'}, ${unsurvivable(d)||'perfusion failed'}. That's too little to keep the heart and the tissues alive, and the heart stopped.`;
  code={el:0,rhythm:C.rhythm,first:C.rhythm,seen:C.rhythm,cause,causes:[cause],fixedLogged:[],cpr:false,quality:'good',airway:'none',
   b:0,cpp:0,etco2:0,flow:0,svo:d.svo,lact:d.lact,noFlow:0,lowFlow:0,handsOn:0,cprTime:0,
   firstCPR:null,firstShock:null,shocks:0,wrongShocks:0,epi:[],anti:[],antiDrug:null,boluses:0,oxygen:false,ino:false,
@@ -655,7 +686,7 @@ function codeAct(k){
  else if(k==='adv'){c.airway='advanced';c.oxygen=true;actions.oxygen.fx(target);codeLog(`Advanced airway placed without stopping compressions. Now ${ACLS.advanced}.`);
   if(!target.ppv){target.ppv=1;target.ext+=3;target.pvr*=1.15;if(target.iatroPtx===1){tension(target);addCause('iatroPtx');codeLog('Positive pressure through the new airway turned the simple pneumothorax into a tension pneumothorax.')}}}
  else if(k==='drain'||k==='needle'||k==='clot')codeProc(k);
- else if(k==='fluid'||k==='blood'){actions[k].fx(target);c.boluses++;codeLog(k==='blood'?'Blood, about 350 mL.':`Crystalloid bolus, about 350 mL.${kind==='hemorrhage'||c.causes.includes('hypovol')&&lastAct==='clot'?' This patient is bleeding, so blood would also restore oxygen-carrying capacity.':''}`)}
+ else if(k==='fluid'||k==='blood'){actions[k].fx(target);c.boluses++;codeLog(k==='blood'?'Blood, about 350 mL.':`Crystalloid bolus, 500 mL.${kind==='hemorrhage'||c.causes.includes('hypovol')&&lastAct==='clot'?' This patient is bleeding, so blood would also restore oxygen-carrying capacity.':''}`)}
  else if(k==='oxygen'){actions.oxygen.fx(target);c.oxygen=true;codeLog('Oxygen at high flow.')}
  else if(k==='ipvd'){actions.ipvd.fx(target);c.ino=true;codeLog('Inhaled NO through the circuit to lower PVR.')}
  else if(k==='stop'){if(!c.confirmStop)c.confirmStop=true;else{codeLog('Resuscitation stopped.');endCode('stopped');return}}
