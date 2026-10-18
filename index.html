@@ -25,11 +25,11 @@ const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.max(a,Math.min(b,x)
 // Healthy adult. Each ventricle has a linear end-systolic pressure-volume line
 // (slope Ees, intercept V0) and an exponential end-diastolic curve (stiffness beta).
 const base={vol:5,u:3.5,comp:.2,rvr:.503,ext:0,hr:70,svr:1200,hb:15,sao:.98,pao:95,demand:250,extract:.72,shunt:0,lung:0,lact:1,gap:4,bsa:1.8,temp:37,pvr:1.5,paCompliance:5,
- lvEes:2.3,lvBeta:.027,lvV0:15,rvEes:.45,rvBeta:.018,rvV0:40,ava:3.5,trSev:0,hpv:.3,pvrResp:.15,edemaAt:18,ppv:0,rvIsch:1,lvIsch:1,periV0:300,
+ lvEes:2.3,lvBeta:.027,lvV0:15,rvEes:.45,rvBeta:.018,rvV0:40,ava:3.5,trSev:0,arSev:0,hpv:.3,pvrResp:.15,edemaAt:18,ppv:0,rvIsch:1,lvIsch:1,periV0:300,
  sam:0,mva:1000,mrSev:0,reflexGain:1,lvRelax:1,rvRelax:1,periK:.03,periFixed:0,atrialKick:1,rateLock:0,iatroTamp:0,iatroPtx:0,iatroPtxExt:0,iatroPtxPvr:0};
 // sam: how readily the mitral leaflet is pulled into the LV outflow tract (0 = never).
 // mva: mitral valve area in cm². The healthy valve is set wide open so it adds no gradient.
-// mrSev: regurgitant fraction of an MR lesion at normal load. reflexGain: share of the
+// mrSev: regurgitant fraction of an MR lesion at normal load. arSev: the same for acute AR. reflexGain: share of the
 // usual reflex rise in HR, tone and contractility an acute insult can recruit.
 // lvRelax/rvRelax: how much a fast rate costs filling. A thick, slow-relaxing LV pays more;
 // a restrictive ventricle fills almost entirely in early diastole, so it pays less.
@@ -67,12 +67,14 @@ function heart(s,co,rap){
  // Diastolic filling time per beat: what's left after ejection and isovolumic time.
  const dfp=Math.max(.08,60/hr-sep-.08),lvE=s.lvEes*s.lvIsch,rvE=s.rvEes*s.rvIsch;
  let septal=0,ppc=0,lvedp=0,rvedp=0,lap=0,mpap=0,pp=0,pesR=0,esvR=0,edvR=0,rf=s.trSev,svTot=sv;
- let pesL=0,esvL=0,edvL=0,svL=sv,mrf=s.mrSev,dpLVOT=0,dpMV=0,mrV=0;
+ let pesL=0,esvL=0,edvL=0,svL=sv,mrf=s.mrSev,dpLVOT=0,dpMV=0,mrV=0,arf=0,arV=0;
  const noKick=1-s.atrialKick,kickL=noKick*kickShare(s.lvBeta,base.lvBeta,s.lvRelax,hr),kickR=noKick*kickShare(s.rvBeta,base.rvBeta,s.rvRelax,hr);
  for(let i=0;i<8;i++){
   // The LV ejects against MAP plus any valve or outflow gradient. With MR it also has to
   // eject the volume that leaks back into the LA.
-  svL=sv/(1-mrf);
+  // Acute AR: the leak runs for the whole of diastole, so it grows with diastolic time (a slower
+  // rate) and with aortic pressure. It flows back into the LV, so it adds to end-diastolic volume.
+  arf=clamp(s.arSev*Math.sqrt(dfp/.47)*(1+.008*(map-93)),0,.8);svL=sv/Math.max(.15,1-mrf-arf);arV=arf*svL;
   // Dynamic LVOT obstruction: the smaller the cavity in mid-systole, the further the mitral
   // leaflet is drawn into the outflow tract, so the gradient climbs steeply as the LV empties.
   // Faster, more forceful ejection drags the leaflet in sooner, so contractility adds to it.
@@ -102,7 +104,7 @@ function heart(s,co,rap){
   ppc+=(Math.min(45,.4*(Math.exp(Math.min(30,s.periK*Math.max(0,edvL+edvR-s.periV0)))-1))-ppc)*.5;
  }
  const vwave=.06*rf*svTot;
- return{rapNeed:s.ext+ppc+rvedp+vwave,ppc,map,sv,dpAS,dpLVOT,dpMV,mrf,mrV,svL,pesL,esvL,edvL,lvedp,lap,mpap,pp,pesR,esvR,edvR,rvedp,rf,septal,svTot,vwave,pvr,sao}
+ return{rapNeed:s.ext+ppc+rvedp+vwave,ppc,map,sv,dpAS,dpLVOT,dpMV,mrf,mrV,svL,pesL,esvL,edvL,lvedp,lap,mpap,pp,pesR,esvR,edvR,rvedp,rf,septal,svTot,vwave,pvr,sao,arf,arV}
 }
 // Venous return meets the two pumps in series: find the flow at which the RAP the
 // veins leave behind equals the RAP the right heart needs.
@@ -129,14 +131,14 @@ function calc(s){
  const lvsp=1.3*(map-rap)+rap+h.dpAS+h.dpLVOT,rvPerf=map-rap;
  const rvSupply=rvPerf-.5*Math.max(0,pas-30)-.1*Math.max(0,s.hr-100)-.6*Math.max(0,h.edvR-s.rvV0-135);
  // The LV fills its coronaries in diastole: diastolic pressure (MAP minus a third of an
- // estimated pulse pressure) minus LVEDP, less what a high systolic load and a fast rate cost.
+ // estimated pulse pressure, wider when AR runs back out of the aorta) minus LVEDP, less what a high systolic load and a fast rate cost.
  // Below that the LV weakens gradually, so one bad move costs output and it takes a sustained
  // or repeated insult to tip it into the ischemic spiral.
- const dbp=map-sv/4.5,lvSupply=dbp-latm-.1*Math.max(0,lvsp-120)-.25*Math.max(0,s.hr-85);
+ const dbp=map-(sv+h.arV)/4.5,lvSupply=dbp-latm-.1*Math.max(0,lvsp-120)-.25*Math.max(0,s.hr-85);
  const rvIschT=clamp(.3+.7*rvSupply/30,.3,1),lvIschT=clamp(1-.7*(25-lvSupply)/60,.3,1);
  const lvef=h.svL/h.edvL,rvef=h.svTot/h.edvR;
  return {hr:s.hr,sv,co,map,svr:s.svr,rap,pms,hb:s.hb,sao:sao*100,cao,delivery,vo,oer:oer*100,scv:scv*100,lact:s.lact,gap:s.gap,vti:sv/3.14,debt:Math.max(0,s.demand-vo),pcwp,latm,mpap,pas,pad,rvs:pas,rvedp:h.rvedp+h.ppc+s.ext,ci,svi,svo,cvo,temp:s.temp,bsa:s.bsa,pvr:h.pvr,pvrd:h.pvr*80,svri:s.svr*s.bsa,pvri:h.pvr*80*s.bsa,tpg,dpg,papi:pp/Math.max(.01,rap),cpo:map*co/451,cpi:map*ci/451,lvswi:.0136*(map-pcwp)*svi,rvswi:.0136*(mpap-rap)*svi,doi:delivery/s.bsa,voi:vo/s.bsa,laScale,congestion,
-  lvedv:h.edvL,lvesv:h.esvL,rvedv:h.edvR,rvesv:h.esvR,lvef:lvef*100,rvef:rvef*100,lvedp:h.lvedp+h.ppc+s.ext,ppc:h.ppc,lvsp,dpAS:h.dpAS,dpLVOT:h.dpLVOT,dpMV:h.dpMV,mrf:h.mrf*100,rf:h.rf*100,septal:h.septal,rvPerf,rvSupply,lvSupply,rvIschT,lvIschT,rvIsch:s.rvIsch*100,lvIsch:s.lvIsch*100,vwave:h.vwave,kick:s.atrialKick}
+  lvedv:h.edvL,lvesv:h.esvL,rvedv:h.edvR,rvesv:h.esvR,lvef:lvef*100,rvef:rvef*100,lvedp:h.lvedp+h.ppc+s.ext,ppc:h.ppc,lvsp,dpAS:h.dpAS,dpLVOT:h.dpLVOT,dpMV:h.dpMV,mrf:h.mrf*100,arf:h.arf*100,arV:h.arV,rf:h.rf*100,septal:h.septal,rvPerf,rvSupply,lvSupply,rvIschT,lvIschT,rvIsch:s.rvIsch*100,lvIsch:s.lvIsch*100,vwave:h.vwave,kick:s.atrialKick}
 }
 // Run the slow processes (coronary ischemia, lung water) forward until they settle.
 // Used to predict where an intervention will land before the animation gets there.
@@ -187,6 +189,7 @@ const presets={
  sepsis:{name:'Sepsis · high output',tip:"Vasodilatory sepsis with high output. SVR falls by more than half, veins dilate, and the heart answers with rate and contractility, so CO is high. Microcirculatory shunting keeps venous saturation high even while tissues run an oxygen debt. Volume and norepinephrine treat it; a weak or pressure-loaded heart can't mount the output.",caption:'Sepsis is not volume down. Most of the drop in Pmsf is lost tone.',exam:'Warm hands · bounding pulse · wide pulse pressure · shunting: high ScvO₂ can coexist with oxygen debt',fx:p=>({...p,u:p.u+.3,rvr:p.rvr*.835,hr:p.hr+40*weak(p),svr:p.svr*.467,hb:Math.min(p.hb,12),...adren(p,1.5),lvEes:adren(p,1.5).lvEes*(1-.5*(1-weak(p))),lvBeta:p.lvBeta*(1-.2*reserve(p,'lvBeta')),rvBeta:p.rvBeta*(1-.2*reserve(p,'rvBeta')),pvr:Math.max(.8,p.pvr-.4),paCompliance:p.paCompliance*1.2,demand:p.demand+70,extract:.15,shunt:.65,lact:5,gap:10,temp:39.2})},
  preload:{name:'Sepsis · preload deficit',tip:"Sepsis with poor intake: lost tone plus a real volume deficit. Filling pressures are low, the LV looks hyperdynamic, and output isn't high. Here fluid and early norepinephrine both raise Pmsf. It's the patient in the guided case.",caption:'Lost tone plus poor intake lowers filling pressure. A hyperdynamic LV does not prove high output.',exam:'68-year-old with pneumonia · 39.2 °C · warm, dry · hyperdynamic LV · normal RV · A-lines',fx:p=>({...p,vol:p.vol-.545,u:p.u-.182,rvr:p.rvr*.994,hr:p.hr+48,svr:p.svr*.692,hb:Math.min(p.hb,11),sao:Math.min(p.sao,.93),pao:Math.min(p.pao,70),...adren(p,1.1),demand:p.demand-30,lact:4.8,gap:8,shunt:.12,temp:39.2})},
  cardiogenic:{name:'LV failure',tip:"Acute LV failure, such as a large MI. LV contractility drops to about 30% of normal, filling pressures rise and the lungs flood, and venoconstriction and tone try to hold pressure. More fluid mostly worsens congestion. Inotropes, careful afterload reduction and treating the cause help.",caption:'A weak LV raises filling pressures. Rising RAP narrows the venous-return gradient.',exam:'Dilated weak LV · plethoric IVC · B-lines · cold extremities',fx:p=>({...p,u:p.u-.9,hr:p.hr+35,svr:reflex(p,1.25),lung:Math.max(p.lung,.65),lvEes:Math.min(p.lvEes*.7,base.lvEes*.307+Math.max(0,p.lvEes-base.lvEes)),pvr:p.pvr+1,paCompliance:p.paCompliance*.28,lact:5,gap:10})},
+ ar:{name:'Acute aortic regurgitation',tip:"Acute severe aortic regurgitation, from endocarditis or a dissection. Each diastole, a large share of the stroke volume runs back into a normal-sized LV that hasn't had time to stretch. LVEDP and PCWP climb fast, forward output falls, and diastolic pressure drops, so the coronaries get less. A fast rate helps, since a shorter diastole leaks less. Beta-blockers and pure vasoconstrictors make it worse. Afterload reduction and dobutamine buy time; surgery is the fix. A balloon pump is contraindicated.",caption:'Part of each beat runs back from the aorta into an LV that hasn\'t had time to stretch. LVEDP climbs, forward flow falls, and the longer the diastole or the higher the aortic pressure, the more leaks back.',exam:'Diastolic jet filling the LVOT · short pressure half-time · normal-sized, hyperdynamic LV · B-lines · soft, short diastolic murmur',fx:p=>({...p,arSev:.8,u:p.u-.6,hr:p.hr+30,svr:reflex(p,1.2),...adren(p,1.2),demand:p.demand+20,lact:4,gap:8})},
  tamponade:{name:'Tamponade',tip:"Pericardial fluid raises the pressure around the heart by about 9 mmHg. The chambers can't fill, so RAP is high, the LV is small and output falls, even though the muscle is fine. Fluid buys a little time; pericardiocentesis is the fix.",caption:'Pericardial pressure limits filling: RA collapse, then RV diastolic collapse. Low-pressure tamponade also exists.',exam:'Pericardial fluid · plethoric IVC · small underfilled LV · muscle contractility preserved',fx:p=>({...p,u:p.u-.8,ext:p.ext+9,hr:p.hr+50,svr:reflex(p,1.42),...adren(p,1.2),lact:5,gap:10})},
  pe:{name:'Massive PE',tip:"Massive pulmonary embolism. PVR rises by about 8 Wood units, so the RV dilates against a sudden afterload, the septum shifts and the LV underfills. The RV is acutely strained and needs MAP for its coronary flow. Avoid big fluid boluses; support MAP and reperfuse.",caption:'Pulmonary obstruction dilates the RV. The septum bows into the LV and limits its filling.',exam:'Dilated RV · D-shaped LV · plethoric IVC · pulmonary artery clot',fx:p=>({...p,u:p.u-.8,hr:p.hr+50,svr:reflex(p,1.58),pvr:p.pvr+8.5,paCompliance:p.paCompliance*.3,...adren(p,1.3,.77),lact:5,gap:10})},
  tension:{name:'Tension pneumothorax',tip:"Tension pneumothorax. Intrathoracic pressure rises sharply, which blocks venous return and compresses the heart, and PVR rises a little. The heart muscle is fine. Needle decompression is the fix; fluid and pressors only partly offset it.",caption:'Raised intrathoracic pressure blocks venous return. Mechanical obstruction limits output.',exam:'Collapsed lung · mediastinal shift · plethoric IVC · preserved myocardial function',fx:p=>({...p,u:p.u-.8,ext:p.ext+8.5,hr:p.hr+50,svr:reflex(p,1.42),pvr:p.pvr+1.5,paCompliance:p.paCompliance*.6,...adren(p,1.2),lact:5,gap:10})},
@@ -291,13 +294,15 @@ function explain(a,b,d,s){
  else if(b.dpMV>5&&d.dpMV<b.dpMV-3)out.push(`The mitral gradient fell from ${f(b.dpMV)} to ${f(d.dpMV)} mmHg. With more time in diastole the LA empties without pushing as hard.`);
  if(d.mrf>b.mrf+5)out.push(`MR got worse (regurgitant fraction ${f(b.mrf)}% → ${f(d.mrf)}%). More of each LV beat goes back into the LA instead of forward.`);
  else if(b.mrf>15&&d.mrf<b.mrf-5)out.push(`Less of each LV beat leaks back (MR ${f(b.mrf)}% → ${f(d.mrf)}%), so more of it goes forward.`);
+ if(d.arf>b.arf+2)out.push(`AR got worse (regurgitant fraction ${f(b.arf)}% → ${f(d.arf)}%). A longer diastole or a higher aortic pressure sends more back into the LV.`);
+ else if(b.arf>15&&d.arf<b.arf-2)out.push(`Less runs back through the aortic valve (AR ${f(b.arf)}% → ${f(d.arf)}%), so more of each beat stays forward.`);
  if(d.kick<b.kick-.3)out.push(`The atria stopped contributing. Passive filling now has to do all the work, so LVEDP went from ${f(b.lvedp)} to ${f(d.lvedp)} mmHg.`);
  else if(d.kick>b.kick+.3)out.push(`The atria contract again and top up the LV at the end of diastole (LVEDV ${f(b.lvedv)} → ${f(d.lvedv)} mL).`);
  if(d.pas>b.pas+6&&b.pas>35)out.push(`PA systolic pressure rose to ${f(d.pas)} mmHg. That's more afterload for the RV.`);
  if((a==='fluid'||a==='blood')&&d.co<b.co*1.04&&d.rap>b.rap+1.5)out.push(d.ppc>=8&&d.ppc>b.ppc+.5?`The pericardium is already full, so the extra volume raised pericardial pressure (${f(b.ppc)} → ${f(d.ppc)} mmHg) instead of filling the ventricles.`:'Filling pressure went up without much more flow. This heart is on the flat part of its curve.');
  // Rate-dependent output: a heart that can't fill more given more time keeps a nearly fixed stroke volume.
- if(d.hr<b.hr-8&&d.co<b.co*.95&&d.sv<b.sv*1.1)out.push(`Stroke volume barely grew (${f(b.sv)} → ${f(d.sv)} mL), so output fell with the rate. This heart can't fill much more when it's given more time.`);
- if(d.hr>b.hr+8&&d.co>b.co*1.05&&d.sv>b.sv*.8)out.push(`Stroke volume held up (${f(b.sv)} → ${f(d.sv)} mL), so the faster rate raised output. A heart with a nearly fixed stroke volume lives on its rate.`);
+ if(d.hr<b.hr-8&&d.co<b.co*.95&&d.sv<b.sv*1.1&&b.arf<15)out.push(`Stroke volume barely grew (${f(b.sv)} → ${f(d.sv)} mL), so output fell with the rate. This heart can't fill much more when it's given more time.`);
+ if(d.hr>b.hr+8&&d.co>b.co*1.05&&d.sv>b.sv*.8&&b.arf<15)out.push(`Stroke volume held up (${f(b.sv)} → ${f(d.sv)} mL), so the faster rate raised output. A heart with a nearly fixed stroke volume lives on its rate.`);
  const dir=(x,y,t)=>Math.abs(y/x-1)<.03?`${t} about the same`:`${t} ${f(x,t==='CO'?1:0)} → ${f(y,t==='CO'?1:0)}`;
  out.push(`Where it settles: ${dir(b.co,d.co,'CO')} L/min, ${dir(b.map,d.map,'MAP')} mmHg, RAP ${f(b.rap)} → ${f(d.rap)}.`);
  return out.join(' ')}
@@ -396,12 +401,12 @@ let baseKeys=[],severity=1,chronic={...base},kind='normal',target={...base},stat
 const NORMAL={"hr": "60–100", "sv": "60–100", "co": "4.0–8.0", "map": "70–100", "svr": "800–1,200", "rap": "2–6", "pms": "≈7", "hb": "12–17", "sao": "95–100", "cao": "17–20", "delivery": "950–1,150", "vo": "200–250", "oer": "22–30", "scv": "≥70", "lact": "<2", "gap": "≤6", "vti": "≥18 (typically 18–22)", "pcwp": "6–12", "pas": "15–25", "pad": "8–15", "mpap": "10–20", "swanRap": "2–6", "rvs": "15–25", "rvedp": "0–8", "latm": "6–12 (= PCWP without external pressure)", "swanCo": "4.0–8.0", "ci": "2.5–4.0", "swanSv": "60–100", "svi": "33–47", "svo": "60–80", "temp": "36.5–37.5", "pvr": "≤2", "pvrd": "≤160", "swanSvr": "800–1,200", "swanMap": "70–100", "swanHr": "60–100", "svri": "1,970–2,390", "pvri": "≤285", "tpg": "≤12", "dpg": "<7", "papi": ">1.0", "cpo": "≈1.0 (<0.6 in cardiogenic shock)", "cpi": "0.5–0.7", "lvswi": "50–62", "rvswi": "5–10", "doi": "500–600", "voi": "120–160", "cvo": "≈15"};
 // Numeric limits for flagging; null means that side isn't flagged.
 const BOUNDS={"hr": [60, 100], "sv": [60, 100], "co": [4, 8], "map": [70, 100], "svr": [800, 1200], "rap": [2, 6], "hb": [12, 17], "sao": [95, 100], "cao": [17, 20], "delivery": [950, 1150], "vo": [200, 250], "oer": [22, 30], "scv": [70, null], "lact": [null, 1.99], "gap": [null, 6], "vti": [18, null], "pcwp": [6, 12], "pas": [15, 25], "pad": [8, 15], "mpap": [10, 20], "swanRap": [2, 6], "rvs": [15, 25], "rvedp": [0, 8], "latm": [6, 12], "swanCo": [4, 8], "ci": [2.5, 4], "swanSv": [60, 100], "svi": [33, 47], "svo": [60, 80], "temp": [36.5, 37.5], "pvr": [null, 2], "pvrd": [null, 160], "swanSvr": [800, 1200], "swanMap": [70, 100], "swanHr": [60, 100], "svri": [1970, 2390], "pvri": [null, 285], "tpg": [null, 12], "dpg": [null, 6.99], "papi": [1, null], "cpo": [0.6, null], "cpi": [0.5, 0.7], "lvswi": [50, 62], "rvswi": [5, 10], "doi": [500, 600], "voi": [120, 160]};
-Object.assign(NORMAL,{lvedp:"4–12",lvedv:"100–160",lvef:"52–72",rvedv:"100–200",rvef:"≥40",rvPerf:"≥60",rvIsch:"100",lvIsch:"100",dpAS:"<5 (severe AS ≥40)",rf:"<10",septal:"0",dpLVOT:"0 (obstructive ≥30)",dpMV:"0 (severe MS >10)",mrf:"<10 (severe ≥50)"});
-Object.assign(BOUNDS,{lvedp:[4,12],lvedv:[100,160],lvef:[52,72],rvedv:[100,200],rvef:[40,null],rvPerf:[60,null],rvIsch:[95,null],lvIsch:[95,null],dpAS:[null,10],rf:[null,10],septal:[null,5],dpLVOT:[null,10],dpMV:[null,2],mrf:[null,10]});
+Object.assign(NORMAL,{lvedp:"4–12",lvedv:"100–160",lvef:"52–72",rvedv:"100–200",rvef:"≥40",rvPerf:"≥60",rvIsch:"100",lvIsch:"100",dpAS:"<5 (severe AS ≥40)",rf:"<10",septal:"0",dpLVOT:"0 (obstructive ≥30)",dpMV:"0 (severe MS >10)",mrf:"<10 (severe ≥50)",arf:"<10 (severe ≥50)"});
+Object.assign(BOUNDS,{lvedp:[4,12],lvedv:[100,160],lvef:[52,72],rvedv:[100,200],rvef:[40,null],rvPerf:[60,null],rvIsch:[95,null],lvIsch:[95,null],dpAS:[null,10],rf:[null,10],septal:[null,5],dpLVOT:[null,10],dpMV:[null,2],mrf:[null,10],arf:[null,10]});
 const fields=[['pms','Pmsf','mmHg',1],['rap','RAP / CVP','mmHg',1],['co','CO = venous return','L/min',2],['hr','HR','bpm',0],['sv','SV','mL',1],['vti','LVOT VTI','cm',1],['map','MAP','mmHg',0],['svr','SVR','dyn·s/cm⁵',0],['hb','Hb','g/dL',1],['sao','SaO₂','%',0],['cao','CaO₂','mL/dL',1],['delivery','DO₂','mL/min',0],['vo','VO₂ consumed','mL/min',0],['oer','O₂ER','%',1],['scv','Estimated ScvO₂','%',0],['lact','Lactate · illustrative','mmol/L',1],['gap','CO₂ gap · illustrative','mmHg',0]];
 const swanCore=[['swanRap','RAP / CVP','mmHg',1],['rvs','RV systolic','mmHg · estimated',0],['rvedp','RV end-diastolic','mmHg · estimated',1],['pas','PA systolic','mmHg · estimated',0],['pad','PA diastolic','mmHg · estimated',0],['mpap','Mean PA pressure','mmHg · estimated',1],['pcwp','PCWP / PAOP ≈ mean LAP','mmHg · estimated',1],['latm','LA transmural filling','mmHg · PCWP − external pressure',1],['swanHr','HR · systemic monitor','bpm',0],['swanCo','Cardiac output','L/min',2],['ci','Cardiac index','L/min/m²',2],['swanSv','Stroke volume','mL/beat',1],['svi','Stroke volume index','mL/beat/m²',1],['swanMap','MAP · systemic monitor','mmHg',0],['swanSvr','Systemic resistance · SVR','dyn·s/cm⁵',0],['pvr','Pulmonary resistance','Wood units',2],['pvrd','PVR','dyn·s/cm⁵',0],['svo','Mixed venous SvO₂','% · PA blood, Fick estimate',0],['temp','Core temperature','°C · scenario input',1],['bsa','Body surface area','m² · assumed',2]];
 const swanDerived=[['svri','SVR index','dyn·s·m²/cm⁵',0],['pvri','PVR index','dyn·s·m²/cm⁵',0],['tpg','Transpulmonary gradient','mmHg · mPAP − PCWP',1],['dpg','Diastolic pulmonary gradient','mmHg · PAD − PCWP',1],['papi','PA pulsatility index','(PASP − PADP) / RAP',2],['cpo','Cardiac power output','W · MAP × CO / 451',2],['cpi','Cardiac power index','W/m²',2],['rvswi','RV stroke work index','g·m/beat/m²',1],['lvswi','LV stroke work index','g·m/beat/m²',1],['doi','Oxygen delivery index','mL/min/m²',0],['voi','Oxygen consumption index','mL/min/m²',0],['cvo','Mixed venous O₂ content','mL/dL',1]];
-const swanVent=[['rvedv','RV end-diastolic volume','mL · estimated',0],['rvef','RV ejection fraction','% · total, including any TR',0],['rvPerf','RV and renal perfusion pressure','mmHg · MAP − RAP',0],['rvIsch','RV contractility','% of its own baseline · falls with ischemia',0],['rf','TR regurgitant fraction','% of RV stroke volume',0],['septal','Septal shift into the LV','mL · from the RV–LV diastolic gradient',0],['lvedp','LVEDP','mmHg · estimated',1],['lvedv','LV end-diastolic volume','mL · estimated',0],['lvef','LV ejection fraction','%',0],['lvIsch','LV contractility','% of its own baseline · falls with ischemia',0],['dpMV','Mitral valve mean gradient','mmHg · PCWP above LVEDP, Gorlin',0],['mrf','MR regurgitant fraction','% of LV stroke volume',0],['dpLVOT','LV outflow tract gradient','mmHg · dynamic, rises as the LV empties',0],['dpAS','Aortic valve mean gradient','mmHg · Gorlin',0]];
+const swanVent=[['rvedv','RV end-diastolic volume','mL · estimated',0],['rvef','RV ejection fraction','% · total, including any TR',0],['rvPerf','RV and renal perfusion pressure','mmHg · MAP − RAP',0],['rvIsch','RV contractility','% of its own baseline · falls with ischemia',0],['rf','TR regurgitant fraction','% of RV stroke volume',0],['septal','Septal shift into the LV','mL · from the RV–LV diastolic gradient',0],['lvedp','LVEDP','mmHg · estimated',1],['lvedv','LV end-diastolic volume','mL · estimated',0],['lvef','LV ejection fraction','%',0],['lvIsch','LV contractility','% of its own baseline · falls with ischemia',0],['dpMV','Mitral valve mean gradient','mmHg · PCWP above LVEDP, Gorlin',0],['mrf','MR regurgitant fraction','% of LV stroke volume',0],['arf','AR regurgitant fraction','% of LV stroke volume',0],['dpLVOT','LV outflow tract gradient','mmHg · dynamic, rises as the LV empties',0],['dpAS','Aortic valve mean gradient','mmHg · Gorlin',0]];
 const swanAliases={swanRap:'rap',swanCo:'co',swanSv:'sv',swanSvr:'svr',swanMap:'map',swanHr:'hr'};
 for(const [id,group] of [['swanCore',swanCore],['swanVent',swanVent],['swanDerived',swanDerived]])$(id).innerHTML=group.map(([k,n,u])=>`<div class="metric" id="m-${k}"><small>${n}</small><strong id="v-${k}"></strong><span class="arrow" id="a-${k}">→</span><small>${u}</small>${NORMAL[k]?`<small class="normal"><span class="flag" id="f-${k}"></span>Normal ${NORMAL[k]}</small>`:''}</div>`).join('');
 $('metrics').innerHTML=fields.map(([k,n,u])=>`<div class="metric" id="m-${k}"><small>${n}</small><strong id="v-${k}"></strong><span class="arrow" id="a-${k}">→</span><small>${u}</small>${NORMAL[k]?`<small class="normal"><span class="flag" id="f-${k}"></span>Normal ${NORMAL[k]}</small>`:''}</div>`).join('')+'<div class="metric"><small>IVC · RAP category</small><strong id="ivc"></strong><small id="collapse"></small></div>';
@@ -429,7 +434,7 @@ document.querySelectorAll('#interventions button[data-act]').forEach(b=>b.onclic
 // pressure for a couple of simulated seconds, the heart stops. Criteria: MAP < 40,
 // a systemic perfusion gradient (MAP - RAP) < 25, or CI < 0.8.
 function noPerfusion(d){return d.map<40||d.map-d.rap<25||d.ci<.8}
-const arrestFix={normal:'volume and vasopressors',hemorrhage:'blood and hemorrhage control',sepsis:'volume and vasopressors',preload:'volume and vasopressors',cardiogenic:'defibrillation if the rhythm is VF, then inotropes or mechanical support',tamponade:'pericardiocentesis',pe:'thrombolysis or embolectomy',tension:'needle decompression',anaphylaxis:'epinephrine and volume',af:'synchronized cardioversion',brady:'pacing'};
+const arrestFix={normal:'volume and vasopressors',hemorrhage:'blood and hemorrhage control',sepsis:'volume and vasopressors',preload:'volume and vasopressors',cardiogenic:'defibrillation if the rhythm is VF, then inotropes or mechanical support',tamponade:'pericardiocentesis',pe:'thrombolysis or embolectomy',tension:'needle decompression',anaphylaxis:'epinephrine and volume',af:'synchronized cardioversion',brady:'pacing',ar:'emergency valve surgery; until then, afterload reduction, dobutamine and a faster rate'};
 function arrestWhy(a){
  if(state.iatroTamp>0&&(a==='drain'||target.iatroTamp>0))return'The needle punctured the heart. Blood filled the pericardium, and the heart couldn\'t fill.';
  if(state.iatroPtx===2)return'The pneumothorax the needle made became a tension pneumothorax. Venous return stopped.';
@@ -530,7 +535,7 @@ function arrestCause(a){
  if(a==='clot')return'hypovol';
  // A pressure-loaded RV that has started to fail counts as the spiral even before it's far down.
  if(state.rvIsch<.75||lungs(state).pvr>4&&state.rvIsch<.9&&state.rvIsch<state.lvIsch)return'rv';
- if(state.lvIsch<.75||kind==='cardiogenic')return'lv';
+ if(state.lvIsch<.75||kind==='cardiogenic'||kind==='ar')return'lv';
  if(kind==='hemorrhage'||a==='diurese')return'hypovol';
  if(state.ava<1.5)return'as';if(state.sam>0)return'hocm';
  if(kind==='af')return'arrhythmia';
@@ -1049,6 +1054,8 @@ if(d.dpLVOT>8){const sam=clamp(d.dpLVOT/6,2,12)*beat;line(c,[[640,196],[652+sam,
 // Mitral stenosis narrows the inflow; MR sends a jet back into the LA.
 if(s.mva<3){const g=clamp(s.mva*5,3,14);line(c,[[583,203],[583,225-g]],'#8a6d3b',6);line(c,[[583,225+g],[583,247]],'#8a6d3b',6);text(c,`MV gradient ${d.dpMV.toFixed(0)} mmHg`,560,328,13,'#8a6d3b','center')}
 if(d.mrf>12){line(c,[[602,246],[566,246]],'#7a2e3b',3);line(c,[[574,241],[566,246],[574,251]],'#7a2e3b',3);text(c,`MR ${d.mrf.toFixed(0)}%`,584,266,12,'#7a2e3b','center')}
+// AR sends a jet from the aorta back into the LV in diastole.
+if(d.arf>12){line(c,[[674,232],[642,232]],'#7a2e3b',3);line(c,[[650,227],[642,232],[650,237]],'#7a2e3b',3);text(c,`AR ${d.arf.toFixed(0)}%`,795,206,13,'#7a2e3b','center')}
 if(s.ava<2){const g=clamp(s.ava*7,3,18);line(c,[[668,203],[668,225-g]],'#8a6d3b',6);line(c,[[668,225+g],[668,247]],'#8a6d3b',6);text(c,`AS gradient ${d.dpAS.toFixed(0)} mmHg`,700,264,13,'#8a6d3b','center')}
 text(c,'LA',540,230,15,'#233e52','center');text(c,'LV',625,230,17,'#233e52','center');
 text(c,`PCWP ${d.pcwp.toFixed(1)} mmHg`,540,289,15,'#963f53','center');
