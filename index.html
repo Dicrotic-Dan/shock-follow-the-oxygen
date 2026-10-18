@@ -25,7 +25,7 @@ const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.max(a,Math.min(b,x)
 // Healthy adult. Each ventricle has a linear end-systolic pressure-volume line
 // (slope Ees, intercept V0) and an exponential end-diastolic curve (stiffness beta).
 const base={vol:5,u:3.5,comp:.2,rvr:.503,ext:0,hr:70,svr:1200,hb:15,sao:.98,pao:95,demand:250,extract:.72,shunt:0,lung:0,lact:1,gap:4,bsa:1.8,temp:37,pvr:1.5,paCompliance:5,
- lvEes:2.3,lvBeta:.027,lvV0:15,rvEes:.45,rvBeta:.018,rvV0:40,ava:3.5,trSev:0,arSev:0,hpv:.3,pvrResp:.15,edemaAt:18,ppv:0,rvIsch:1,lvIsch:1,periV0:300,
+ lvEes:2.3,lvBeta:.027,lvV0:15,rvEes:.45,rvBeta:.018,rvV0:40,rvStretch:160,ava:3.5,trSev:0,arSev:0,hpv:.3,pvrResp:.15,edemaAt:18,ppv:0,rvIsch:1,lvIsch:1,periV0:300,
  sam:0,mva:1000,mrSev:0,cong:0,reflexGain:1,lvRelax:1,rvRelax:1,periK:.03,periFixed:0,atrialKick:1,rateLock:0,iatroTamp:0,iatroPtx:0,iatroPtxExt:0,iatroPtxPvr:0,
  hco3:24,pco2:40,spont:1};
 // sam: how readily the mitral leaflet is pulled into the LV outflow tract (0 = never).
@@ -38,6 +38,9 @@ const base={vol:5,u:3.5,comp:.2,rvr:.503,ext:0,hr:70,svr:1200,hb:15,sao:.98,pao:
 // periFixed: a scarred pericardium that can't stretch to fit the heart over time.
 // iatroTamp: pericardial pressure (mmHg) from blood a needle put there. iatroPtx: a pneumothorax a
 // needle made (1 simple, 2 tension), with the intrathoracic pressure and PVR it added.
+// rvStretch: the RV end-diastolic volume (mL) past which acute overdistension starts to cost coronary
+// supply (Laplace). 120 mL above V0 for a normal RV; a chronically dilated RV has remodeled and is
+// referenced to its own resting size instead (set in chronicOf and fitProfile).
 // cong: venous congestion of the organs (0 to 1). It builds over minutes while RAP sits above
 // about 12 mmHg and clears slowly once RAP falls. Congested, edematous tissue extracts oxygen
 // poorly, so delivery can look adequate while an oxygen debt grows.
@@ -73,7 +76,11 @@ function lungs(s){const sao=clamp(s.sao-.08*s.lung-.3*Math.pow(s.lung,2.5)*(s.pp
 // Bicarbonate is deliberately NOT derived from lactate. Lactate here is a scripted display value,
 // and lactic and hydrochloric acidosis at the same pH are different insults at the cell
 // (Terpe, J Biomed Sci 2024), so the acid load is set per patient instead of inferred.
-const pco2Of=s=>s.spont?clamp(40-1.2*(24-s.hco3),10,45):s.pco2;
+// spont is a share, not a switch, because the sims glide every parameter from the old state to
+// the new one: at 1 the patient sets PaCO2, at 0 the ventilator does, and in between PaCO2 crosses
+// from one to the other the way it does over the first minutes on the ventilator.
+const pco2Of=s=>{const sp=clamp(s.spont,0,1),own=clamp(40-1.2*(24-s.hco3),10,45);
+ return sp===1?own:sp===0?s.pco2:sp*own+(1-sp)*s.pco2};
 const phOf=s=>6.1+Math.log10(Math.max(1,s.hco3)/(.03*Math.max(5,pco2Of(s))));
 // How much of the pH fall counts. Nothing above 7.30: in the bicarbonate trials, moving pH from
 // 7.22 to 7.36 changed cardiac output no more than equimolar saline did, and the most acidemic
@@ -113,6 +120,33 @@ function phGain(s){const l=acidLoss(s);if(!l)return{beta:1,alpha:1};const ph=7.4
  return{beta:PH_GAIN[3][1],alpha:PH_GAIN[3][2]}}
 // Scale a multiplicative drug effect by how much of the response is left.
 const by=(m,g)=>1+(m-1)*g;
+// What a ventilator delivers. Default settings (about 8 mL/kg at a rate in the teens) carry a
+// normal adult's CO2 production at a PaCO2 near 40, so 40 is the default here. Nothing about that
+// is dangerous in itself: every patient in this engine already sits at PaCO2 40, so a default
+// intubation changes no pH. It is dangerous only against a bicarbonate the patient was
+// compensating for, and then the arithmetic is the whole teaching point. pH tracks the
+// HCO3/PaCO2 ratio, so doubling PaCO2 always costs 0.30 pH units; what differs is how small the
+// starting PaCO2 is. At HCO3 5: PaCO2 12 gives pH 7.24, 20 gives 7.02, 25 gives 6.92, 40 gives
+// 6.72. A patient compensating at PaCO2 12 needs only +12 mmHg to lose 0.30 pH units. A patient
+// at PaCO2 40 needs +40 for the same loss.
+// A ventilator set for this patient matches the minute ventilation they were doing themselves,
+// which means leaving PaCO2 where they had it. That is the second argument of intubate: true
+// matches the patient, a number sets a target PaCO2, nothing at all gives the default. So the
+// dangerous version is not built into intubation; it comes out of the patient.
+// NOT measured, and this matters: no cohort has ever measured PaCO2 and pH before and after
+// intubation in severe metabolic acidosis. The claim rests on arithmetic, not on data. The cohort
+// evidence also does not single out pH. A pH under 7.30 was the weakest of six predictors of
+// peri-intubation arrest, adjusted OR 2.58 (1.04 to 6.39), behind shock index 5.61, hypoxemia
+// 5.13 and lactate 4.24 (Ali, J Emerg Med 2025;76:26), and pH does not appear at all behind a
+// pooled arrest rate of 2.1% (Yang, Biomed J 2024;47:100656). There is a published counter-
+// argument that the harm runs the other way, that intubating and normalizing PaCO2 is itself the
+// injury (Tasker, Pediatr Crit Care Med 2005;6:405, and a 2025 DKA case series).
+// Apneic rise during the attempt is deliberately not modeled: +12 mmHg in the first minute then
+// 3.4 mmHg/min (Stock, J Clin Anesth 1989;1:328), but the apnea-test range is 0.5 to 10.5
+// mmHg/min, neither linear nor predictable, so any single number would be invented precision.
+const VENT_PCO2=40;
+const ventilate=(s,target)=>{const own=pco2Of(s);s.spont=0;
+ s.pco2=target===true?own:Number.isFinite(target)?clamp(target,10,100):VENT_PCO2};
 // ACIDEMIA END
 // For a given forward flow, what filling pressure does each ventricle need?
 // LV: ESV = V0 + Pes/Ees, EDV = ESV + SV, LVEDP from the diastolic curve.
@@ -192,21 +226,27 @@ function calc(s){
  // Coronary supply against demand for each ventricle. A pressure-loaded RV loses
  // its systolic coronary flow, so it depends on MAP far more than a normal RV does.
  // Overstretching the RV raises wall stress and oxygen demand (Laplace).
- const lvsp=1.3*(map-rap)+rap+h.dpAS+h.dpLVOT,rvPerf=map-rap;
+ // RV coronary perfusion. A normal RV fills its coronaries through systole and diastole, so its
+ // driving pressure is close to MAP minus RVEDP. As PA pressure climbs toward aortic pressure the
+ // systolic share is lost and the RV, like the LV, lives on diastolic pressure minus RVEDP.
+ const dbp=map-(sv+h.arV)/4.5,wRv=clamp((pas-40)/40,0,1),rvedpT=h.rvedp+h.ppc+s.ext;
+ const lvsp=1.3*(map-rap)+rap+h.dpAS+h.dpLVOT,rvPerf=(1-wRv)*(map-rvedpT)+wRv*(dbp-rvedpT);
  // An overstretched RV (Laplace) needs far more oxygen than its coronaries can bring, so filling
  // a dilated RV past about 120 mL above its unstressed volume starts the ischemic spiral.
- const rvSupply=rvPerf-.5*Math.max(0,pas-30)-.1*Math.max(0,s.hr-100)-1.2*Math.max(0,h.edvR-s.rvV0-120);
+ const rvSupply=rvPerf-.2*Math.max(0,pas-30)-.1*Math.max(0,s.hr-100)-1.2*Math.max(0,h.edvR-s.rvStretch);
  // The LV fills its coronaries in diastole: diastolic pressure (MAP minus a third of an
  // estimated pulse pressure, wider when AR runs back out of the aorta) minus LVEDP, less what a high systolic load and a fast rate cost.
  // Below that the LV weakens gradually, so one bad move costs output and it takes a sustained
  // or repeated insult to tip it into the ischemic spiral.
  // A high LVEDP squeezes the subendocardium harder than the simple difference suggests, and a
  // weak or thick LV needs more perfusion pressure than a normal one before it starts to starve.
- const dbp=map-(sv+h.arV)/4.5,lvSupply=dbp-latm-.4*Math.max(0,latm-18)-.1*Math.max(0,lvsp-120)-.25*Math.max(0,s.hr-85);
+ const lvSupply=dbp-latm-.4*Math.max(0,latm-18)-.1*Math.max(0,lvsp-120)-.25*Math.max(0,s.hr-85);
  const lvNeed=25+8*Math.max(0,1-s.lvEes/base.lvEes)+8*Math.max(0,s.lvEes/base.lvEes-1.3);
+ // RV ischemia starts below a supply of 30 mmHg; the perfusion definition above is what makes it bite sooner.
  const rvIschT=clamp(.3+.7*rvSupply/30,.3,1),lvIschT=clamp(1-.7*(lvNeed-lvSupply)/60,.3,1);
  const lvef=h.svL/h.edvL,rvef=h.svTot/h.edvR;
  return {hr:s.hr,sv,co,map,svr:s.svr,rap,pms,hb:s.hb,sao:sao*100,cao,delivery,vo,oer:oer*100,scv:scv*100,lact:s.lact,gap:s.gap,vti:sv/3.14,debt:Math.max(0,demand-vo),pcwp,latm,mpap,pas,pad,rvs:pas,rvedp:h.rvedp+h.ppc+s.ext,ci,svi,svo,cvo,temp:s.temp,bsa:s.bsa,pvr:h.pvr,pvrd:h.pvr*80,svri:s.svr*s.bsa,pvri:h.pvr*80*s.bsa,tpg,dpg,papi:pp/Math.max(.01,rap),cpo:map*co/451,cpi:map*ci/451,lvswi:.0136*(map-pcwp)*svi,rvswi:.0136*(mpap-rap)*svi,doi:delivery/s.bsa,voi:vo/s.bsa,laScale,congestion,
+  ph:phOf(s),hco3:s.hco3,pco2:pco2Of(s),acidIno:acidIno(s,'lvEes')*100,acidBeta:phGain(s).beta*100,acidAlpha:phGain(s).alpha*100,
   lvedv:h.edvL,lvesv:h.esvL,rvedv:h.edvR,rvesv:h.esvR,lvef:lvef*100,rvef:rvef*100,lvedp:h.lvedp+h.ppc+s.ext,ppc:h.ppc,lvsp,dpAS:h.dpAS,dpLVOT:h.dpLVOT,dpMV:h.dpMV,mrf:h.mrf*100,arf:h.arf*100,arV:h.arV,rf:h.rf*100,septal:h.septal,rvPerf,rvSupply,lvSupply,rvIschT,lvIschT,rvIsch:s.rvIsch*100,lvIsch:s.lvIsch*100,vwave:h.vwave,kick:s.atrialKick,cong:s.cong,congT}
 }
 // Run the slow processes (coronary ischemia, lung water) forward until they settle.
@@ -255,6 +295,8 @@ const reflex=(p,k)=>Math.max(p.svr,base.svr*k);
 // How much of a normal LV's contractility is left. A failing LV has little adrenergic
 // reserve (downregulated, usually beta-blocked), and septic myocardial depression unmasks it.
 const weak=p=>clamp(p.lvEes/base.lvEes,.3,1);
+// The adrenergic boost an insult recruits is scaled for reserve here and for acidemia in compose,
+// where the insult's own acid load is already in place.
 const adren=(p,l,r=l)=>({lvEes:p.lvEes*(1+(l-1)*reserve(p,'lvEes')),rvEes:p.rvEes*(1+(r-1)*reserve(p,'rvEes'))});
 const presets={
  normal:{name:'No acute insult',tip:"The chronic patient at rest, or a healthy adult if no baseline is picked. Use it to see what a chronic condition looks like before anything goes wrong.",caption:'Delivery meets demand. At equilibrium, the heart pumps exactly what the veins return.',exam:'IVC intermediate · clear lungs · normal ventricular function',fx:p=>({...p})},
@@ -268,18 +310,45 @@ const presets={
  tension:{name:'Tension pneumothorax',tip:"Tension pneumothorax. Intrathoracic pressure rises sharply, which blocks venous return and compresses the heart, and PVR rises a little. The heart muscle is fine. Needle decompression is the fix; fluid and pressors only partly offset it.",caption:'Raised intrathoracic pressure blocks venous return. Mechanical obstruction limits output.',exam:'Collapsed lung · mediastinal shift · plethoric IVC · preserved myocardial function',fx:p=>({...p,u:p.u-.8,ext:p.ext+8.5,hr:p.hr+50,svr:reflex(p,1.42),pvr:p.pvr+1.5,paCompliance:p.paCompliance*.6,...adren(p,1.2),lact:5,gap:10})},
  af:{name:'AF with RVR',tip:"New atrial fibrillation with a rapid ventricular response, about 145 and irregular. Two things go at once: the atria stop topping up the ventricles, and diastole gets too short to fill. A healthy heart copes. A stiff or obstructed heart (HFpEF, HOCM, amyloid, aortic or mitral stenosis) loses a lot of output and its filling pressure climbs. Rate control or synchronized cardioversion fixes it; pressors and fluid only buy time.",caption:'The ventricles beat fast and irregularly, and the atria have stopped contracting. Short diastoles and no atrial kick both cut filling. The rate comes from the AV node, so the baroreflex can\'t slow it.',exam:'Irregularly irregular narrow-complex tachycardia near 145 · no P waves · no a-wave on the RA trace',fx:p=>({...p,hr:Math.max(p.hr,145),rateLock:1,atrialKick:0,svr:reflex(p,1.15),...adren(p,1.1),lact:3,gap:7})},
  brady:{name:'Symptomatic bradycardia',tip:"Complete heart block with a ventricular escape near 38. The atria and ventricles beat out of step, so the atrial kick lands on the wrong part of the cycle. A compliant ventricle fills more with the long diastole and holds some stroke volume. A heart whose stroke volume is nearly fixed (amyloid, constriction, aortic stenosis) can't, so output falls with the rate. Atropine or pacing is the fix; it's the rate that's missing.",caption:'The escape rhythm is slow and the reflex can\'t speed it. A compliant ventricle fills more in each long diastole. A stiff or constrained one fills early and then stops, so its output falls with the rate.',exam:'Complete heart block · wide escape rhythm near 38 · cannon a-waves · AV dissociation',fx:p=>({...p,hr:Math.min(p.hr,38),rateLock:1,atrialKick:Math.min(p.atrialKick,.5),svr:reflex(p,1.3),...adren(p,1.15),lact:4,gap:8})},
- anaphylaxis:{name:'Anaphylaxis / neuraxial',tip:"Anaphylaxis, or a high neuraxial block. Venous and arteriolar tone are lost, so blood pools in unstressed capacity and Pmsf falls even though total blood volume is normal. The IVC looks flat even though no volume has been lost. Epinephrine and volume treat anaphylaxis; restoring tone treats the block.",caption:'A flat IVC means low filling pressure. Total blood volume can be normal: lost venous tone raises capacitance and moves blood from stressed to unstressed volume, so Pmsf and venous return fall.',exam:'Full total blood volume · lost venous tone · small collapsing IVC',fx:p=>({...p,u:p.u+.575,hr:p.hr+40,svr:p.svr*.75,...adren(p,1.2),lact:3,gap:7})}
+ anaphylaxis:{name:'Anaphylaxis / neuraxial',tip:"Anaphylaxis, or a high neuraxial block. Venous and arteriolar tone are lost, so blood pools in unstressed capacity and Pmsf falls even though total blood volume is normal. The IVC looks flat even though no volume has been lost. Epinephrine and volume treat anaphylaxis; restoring tone treats the block.",caption:'A flat IVC means low filling pressure. Total blood volume can be normal: lost venous tone raises capacitance and moves blood from stressed to unstressed volume, so Pmsf and venous return fall.',exam:'Full total blood volume · lost venous tone · small collapsing IVC',fx:p=>({...p,u:p.u+.575,hr:p.hr+40,svr:p.svr*.75,...adren(p,1.2),lact:3,gap:7})},
+ // Severe metabolic acidosis that arrives compensated: bicarbonate 5, breathing about 30 times a
+ // minute to hold PaCO2 near 17, so pH sits at 7.09 and the acidemia multipliers are already
+ // biting a little. DKA, or a severe lactic acidosis.
+ // Written as an acute insult rather than a chronic baseline for three reasons. The acid load is
+ // what brought the patient in. Severity should scale how deep the acidosis is, and compose
+ // scales every parameter by severity, so 0.5 gives bicarbonate 14 and a pH near 7.25. And
+ // compose reads the reflex gain off the insulted state, so an insult's own acid load blunts its
+ // own reflex, which a chronic baseline applied earlier would not. A chronic acid load, as in
+ // dialysis-dependent renal failure, belongs in compose's `over` instead, in place before any
+ // insult lands.
+ // The hemodynamics are the ones measured in DKA: a volume deficit from the osmotic diuresis,
+ // tachycardia, and tone held up by a catecholamine surge the acidemia is already blunting. The
+ // volume deficit is deliberately small, a patient who has already had a couple of liters. This
+ // engine's induction is hard on any preload-dependent patient (hemorrhage at full severity
+ // arrests on intubation at pH 7.40), and a deeper deficit here would arrest whatever the
+ // ventilator did, which hides the thing the case is for. At this deficit the pH decides it: with
+ // the ventilator matched to the patient's own minute ventilation the patient survives induction,
+ // and with default settings the same patient arrests. The
+ // raised demand is the work of breathing, which is why intubating it lowers demand even as it
+ // costs pH. Lactate stays modest: ketoacidosis is not a lactic acidosis, and the bicarbonate
+ // here is set per patient, never inferred from lactate.
+ dka:{name:'Severe metabolic acidosis',tip:"Severe metabolic acidosis, compensated: bicarbonate 5, PaCO\u2082 17 from a respiratory rate near 30, pH 7.09. DKA, or a severe lactic acidosis. Volume is down from the osmotic diuresis, and the catecholamine surge holding the pressure up is already blunted by the pH. The work of breathing is the compensation. Intubating takes it away: the ventilator sets PaCO\u2082, and at this bicarbonate a PaCO\u2082 of 40 is a pH of 6.72. Treat the cause and replace the volume. If this patient needs intubation, match the ventilator to the breathing they were already doing.",caption:'This patient is holding PaCO\u2082 at 17 to keep pH at 7.09. pH tracks the HCO\u2083/PaCO\u2082 ratio, so a ventilator set to a normal PaCO\u2082 doubles it and costs 0.30 pH units.',exam:'Deep, fast Kussmaul breathing \u00b7 dry mucous membranes \u00b7 small collapsing IVC \u00b7 normal ventricular function',fx:p=>({...p,hco3:5,vol:p.vol-.3,u:p.u-.3,hr:p.hr+40,svr:reflex(p,1.25),...adren(p,1.15),demand:p.demand+40,lact:2.5,gap:5})}
 };
 // Chronic patient: apply each chosen baseline in a fixed order (left heart, then
 // pulmonary vascular, then tricuspid). Then the acute insult, scaled by severity.
 function chronicOf(keys){let p=imported?{...imported.params}:{...base};for(const k of baselineOrder)if(keys.includes(k))p=baselines[k].fx(p);
  // Over months the pericardium stretches to fit a chronically enlarged heart.
- if(keys.length&&!p.periFixed){const d=calc(settle(p,200));p.periV0=Math.max(base.periV0,d.lvedv+d.rvedv+20)}return p}
-function compose(keys,kind,severity=1){const c=chronicOf(keys),full=presets[kind].fx(c),p={...c};
+ if(keys.length){const d=calc(settle(p,200));if(!p.periFixed)p.periV0=Math.max(base.periV0,d.lvedv+d.rvedv+20);p.rvStretch=Math.max(p.rvV0+120,d.rvedv+25)}return p}
+// over: parameter overrides on the chronic patient, which is where an acid load a patient arrives
+// with (DKA, renal failure) belongs. An insult can set one in its own fx instead.
+function compose(keys,kind,severity=1,over){const c={...chronicOf(keys),...over},full=presets[kind].fx(c),p={...c};
  // The reflex rise in HR, arteriolar tone and contractility is scaled by how much of the
  // reflex this patient has left. Falls caused by the disease itself aren't touched.
  // A rate set by the rhythm (AF, heart block) isn't a reflex, so it isn't scaled.
- for(const k of['hr','svr','lvEes','rvEes'])if(full[k]>c[k]&&!(k==='hr'&&full.rateLock))full[k]=c[k]+(full[k]-c[k])*c.reflexGain;for(const k of Object.keys(base))p[k]=c[k]+(full[k]-c[k])*severity;
+ // Acidemia blunts that reflex too, beta for rate and contractility, alpha for arteriolar tone.
+ // Read off the insulted state, so an acid load the insult itself brings is counted.
+ const g=phGain(full);
+ for(const k of['hr','svr','lvEes','rvEes'])if(full[k]>c[k]&&!(k==='hr'&&full.rateLock))full[k]=c[k]+(full[k]-c[k])*c.reflexGain*(k==='svr'?g.alpha:g.beta);for(const k of Object.keys(base))p[k]=c[k]+(full[k]-c[k])*severity;
  // The baroreflex answers a fall in pressure. When the insult barely lowers flow (a patient
  // with volume or tone in reserve), the reflex eases off instead of pushing MAP above the
  // patient's own resting level.
@@ -293,17 +362,26 @@ const actions={
  fluid:{name:'Crystalloid bolus (500 mL)',group:'Volume',terms:['Volume','Pmsf','VR','SV','CO','DO₂','O₂ER'],why:'Volume raises stressed volume and Pmsf.',fx:s=>{s.vol+=.175}},
  blood:{name:'Blood',group:'Volume',terms:['Volume','Pmsf','VR','CO','Hb','CaO₂','DO₂','O₂ER'],why:'Blood adds volume and oxygen-carrying capacity.',fx:s=>{s.vol+=.35;s.hb=Math.max(s.hb,Math.min(15,s.hb+1))}},
  diurese:{name:'Diuresis',group:'Volume',terms:['Volume','RAP','PCWP','Lung water','SV','CO'],why:'Diuresis removes volume, so Pmsf and filling pressures fall.',fx:s=>{s.vol=Math.max(2.5,s.vol-.35)}},
- norepi:{name:'Norepinephrine',group:'Vasoactive drugs',terms:['Venous tone','Pmsf','VR','CO','SVR → MAP','RV perfusion'],why:'Norepinephrine constricts arterioles and veins. Venoconstriction recruits stressed volume without adding blood.',fx:s=>{s.u=Math.max(1.5,s.u-.25);s.svr*=1+.18*tone(s);s.lvEes*=1.06;s.rvEes*=1.06;s.hr+=3}},
- vaso:{name:'Vasopressin',group:'Vasoactive drugs',terms:['SVR','MAP','RV perfusion','CO','DO₂'],why:'Vasopressin raises SVR through V1 receptors and leaves the pulmonary vessels mostly alone.',fx:s=>{s.svr+=300*tone(s);s.pvr*=.98;s.hr=Math.max(50,s.hr-2)}},
- phenyl:{name:'Phenylephrine',group:'Vasoactive drugs',terms:['SVR','PVR','MAP','HR','CO'],why:'Phenylephrine is pure alpha agonism. SVR rises, PVR rises with it, and the baroreflex slows the heart.',fx:s=>{s.svr+=300*tone(s);s.u=Math.max(1.5,s.u-.1);s.pvr*=1.12;s.hr=Math.max(50,s.hr-6)}},
- ino:{name:'Dobutamine',group:'Vasoactive drugs',terms:['Contractility','SV','CO','HR','DO₂'],why:'Dobutamine makes both ventricles contract harder and speeds the heart. It dilates a little, too.',fx:s=>{s.lvEes*=1.35;s.rvEes*=1.35;s.hr=Math.min(180,s.hr+12);s.svr*=.92;s.pvr*=.97;s.demand+=10}},
- milrinone:{name:'Milrinone',group:'Vasoactive drugs',terms:['Contractility','SVR','PVR','MAP','RV perfusion','CO'],why:'Milrinone is an inodilator: more contractility, lower SVR and lower PVR.',fx:s=>{s.lvEes*=1.25;s.rvEes*=1.3;s.svr*=.78;s.pvr*=.85;s.u+=.1;s.hr=Math.min(180,s.hr+5)}},
+ // The adrenergic drugs are blunted by acidemia, and unequally: the beta effects more than the
+ // alpha ones. Vasopressin works through V1 and milrinone past the receptor, so neither is.
+ norepi:{name:'Norepinephrine',group:'Vasoactive drugs',terms:['Venous tone','Pmsf','VR','CO','SVR → MAP','RV perfusion'],why:'Norepinephrine constricts arterioles and veins. Venoconstriction recruits stressed volume without adding blood.',fx:s=>{const{beta,alpha}=phGain(s);s.u=Math.max(1.5,s.u-.25*alpha);s.svr*=by(1+.18*tone(s),alpha);s.lvEes*=by(1.06,beta);s.rvEes*=by(1.06,beta);s.hr+=3*beta}},
+ vaso:{name:'Vasopressin',group:'Vasoactive drugs',terms:['SVR','MAP','RV perfusion','CO','DO₂'],why:'Vasopressin raises SVR through V1 receptors and leaves the pulmonary vessels mostly alone. It works through its own receptor, so acidemia doesn\'t blunt it the way it blunts a catecholamine.',fx:s=>{s.svr+=300*tone(s);s.pvr*=.98;s.hr=Math.max(50,s.hr-2)}},
+ phenyl:{name:'Phenylephrine',group:'Vasoactive drugs',terms:['SVR','PVR','MAP','HR','CO'],why:'Phenylephrine is pure alpha agonism. SVR rises, PVR rises with it, and the baroreflex slows the heart.',fx:s=>{const{alpha}=phGain(s);s.svr+=300*tone(s)*alpha;s.u=Math.max(1.5,s.u-.1*alpha);s.pvr*=by(1.12,alpha);s.hr=Math.max(50,s.hr-6)}},
+ ino:{name:'Dobutamine',group:'Vasoactive drugs',terms:['Contractility','SV','CO','HR','DO₂'],why:'Dobutamine makes both ventricles contract harder and speeds the heart. It dilates a little, too.',fx:s=>{const{beta}=phGain(s);s.lvEes*=by(1.35,beta);s.rvEes*=by(1.35,beta);s.hr=Math.min(180,s.hr+12*beta);s.svr*=by(.92,beta);s.pvr*=by(.97,beta);s.demand+=10}},
+ milrinone:{name:'Milrinone',group:'Vasoactive drugs',terms:['Contractility','SVR','PVR','MAP','RV perfusion','CO'],why:'Milrinone is an inodilator: more contractility, lower SVR and lower PVR. It acts past the beta receptor, so acidemia doesn\'t blunt it the way it blunts a catecholamine.',fx:s=>{s.lvEes*=1.25;s.rvEes*=1.3;s.svr*=.78;s.pvr*=.85;s.u+=.1;s.hr=Math.min(180,s.hr+5)}},
  dilate:{name:'Afterload reduction',group:'Vasoactive drugs',terms:['SVR','MAP','SV','CO'],why:'A vasodilator lowers SVR and relaxes the veins.',fx:s=>{s.svr*=.75;s.u+=.2;s.pvr*=.92}},
  ipvd:{name:'Inhaled NO',group:'Lungs and airway',terms:['PVR','RV afterload','SV','CO','DO₂'],why:'Inhaled NO relaxes the pulmonary arterioles it reaches and never gets to the systemic circulation.',fx:s=>{s.pvr*=1-s.pvrResp;if(s.sao<.95)s.sao=Math.min(.95,s.sao+.02)}},
  beta:{name:'Esmolol / beta-blocker',group:'Rate and procedures',terms:['HR','Filling time','Contractility','SV','CO'],why:'A beta-blocker slows the heart and softens each contraction. Each beat gets longer to fill, and the heart needs less oxygen.',fx:s=>{s.hr=Math.max(Math.min(s.hr,45),s.hr-15);s.lvEes*=.88;s.rvEes*=.9;s.demand-=5}},
  rate:{name:'Rate control',group:'Rate and procedures',terms:['HR','Filling time','SV','CO'],why:'Slowing the ventricular rate gives each beat more time to fill. Contractility and tone are left alone.',fx:s=>{s.hr=Math.max(Math.min(s.hr,55),s.hr-20)}},
  pace:{name:'Atropine / pacing',group:'Rate and procedures',terms:['HR','Filling','SV','CO'],why:'Rate goes up, and each beat has less time to fill.',fx:s=>{s.hr=Math.min(180,s.hr+25)}},
- intubate:{name:'Intubate',past:'intubation',group:'Lungs and airway',terms:['Venous tone','RAP','PVR','MAP','RV perfusion','CO'],why:'Induction drugs dilate veins and blunt sympathetic tone. Positive pressure raises intrathoracic pressure and PVR.',fx:s=>{if(s.ppv)return'already';s.ppv=1;s.ext+=3;s.svr*=.8;s.u+=.25;s.hr=Math.max(50,s.hr-8);s.demand*=.85;s.lvEes*=.92;s.rvEes*=.92;s.pvr*=1.15;s.sao=Math.max(s.sao,Math.min(.97,s.sao+.06));if(s.iatroPtx===1)tension(s)}},
+ // Intubation also hands PaCO2 to the ventilator. The second argument is the setting: nothing
+ // for default settings (PaCO2 40), true to match the minute ventilation the patient was doing,
+ // or a target PaCO2. Sedation and positive pressure cut the sympathetic tone that was holding
+ // Pmsf up (u rises) while the arteriolar dilation of acidemia stays, which is the asymmetry
+ // Rothe measured: with the reflex blocked, hypercapnia no longer supported MCFP but resistance
+ // and pressure still fell (Can J Physiol Pharmacol 1990;68:384). No direct pH-to-venous-tone
+ // term is used anywhere in this engine, because none has ever been measured.
+ intubate:{name:'Intubate',past:'intubation',group:'Lungs and airway',terms:['Venous tone','RAP','PVR','MAP','RV perfusion','CO','PaCO₂','pH'],why:'Induction drugs dilate veins and blunt sympathetic tone. Positive pressure raises intrathoracic pressure and PVR. The ventilator also takes over PaCO2, and default settings hold it near 40, which costs pH in a patient who was blowing it off to compensate.',fx:(s,vent)=>{if(s.ppv)return'already';s.ppv=1;s.ext+=3;s.svr*=.8;s.u+=.25;s.hr=Math.max(50,s.hr-8);s.demand*=.85;s.lvEes*=.92;s.rvEes*=.92;s.pvr*=1.15;s.sao=Math.max(s.sao,Math.min(.97,s.sao+.06));ventilate(s,vent);if(s.iatroPtx===1)tension(s)}},
  drain:{name:'Pericardiocentesis',group:'Rate and procedures',terms:['Pericardial pressure','RAP','VR','CO'],fix:'tamponade'},
  clot:{name:'PE reperfusion',group:'Rate and procedures',terms:['PVR','RV afterload','VR','CO'],fix:'pe'},
  needle:{name:'Needle decompression',group:'Rate and procedures',terms:['Intrathoracic pressure','RAP','VR','CO'],fix:'tension'},
@@ -318,7 +396,8 @@ const actions={
 // becomes part of the patient's physiology until the right procedure treats it.
 // The sympathetic response to a sudden drop: faster, harder, tighter. A patient on a beta-blocker,
 // with autonomic failure, or already maxed out gets less of it.
-function reflexHit(s,g){g*=s.reflexGain;s.hr=Math.min(170,s.hr+30*g);s.svr*=1+.3*g;s.u=Math.max(1.5,s.u-.5*g);s.lvEes*=1+.15*g;s.rvEes*=1+.15*g}
+// The surge runs on the patient's own catecholamines, so acidemia blunts it the same way.
+function reflexHit(s,g){const{beta,alpha}=phGain(s);g*=s.reflexGain;s.hr=Math.min(170,s.hr+30*g*beta);s.svr*=1+.3*g*alpha;s.u=Math.max(1.5,s.u-.5*g*alpha);s.lvEes*=1+.15*g*beta;s.rvEes*=1+.15*g*beta}
 function tension(s){const e=7,r=1.5;s.ext+=e-s.iatroPtxExt;s.pvr+=r-s.iatroPtxPvr;s.iatroPtxExt=e;s.iatroPtxPvr=r;s.iatroPtx=2;s.sao=Math.max(.75,s.sao-.04);reflexHit(s,1)}
 const complications={
  drain:s=>{const e=6;s.ext+=e;s.iatroTamp+=e;s.vol-=.15;s.lact+=.3;reflexHit(s,1);
@@ -457,7 +536,7 @@ function fitProfile(prof){
   // with them in place so the loaded patient doesn't drift away from the measured numbers.
   // PVR is whatever makes the model's mPAP match, given the LA pressure it settled on.
   if(mpapIn!==null)p.pvr=clamp((mpapIn-H().lap)/co,.5,25);
-  const h=H();p.periV0=Math.max(base.periV0,h.edvL+h.edvR+20);
+  const h=H();p.periV0=Math.max(base.periV0,h.edvL+h.edvR+20);p.rvStretch=Math.max(p.rvV0+120,h.edvR+25);
   p.svr=clamp(80*(map-rapT)/co,200,4000);
   p.vol=p.u+p.comp*(rapT+co*p.rvr);
   // Ischemia scales contractility, so raise the nominal value to keep the effective one the
